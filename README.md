@@ -38,12 +38,28 @@ npx playwright install chromium
 
 ## Структура
 
-- `shared/` (`@domino/shared`) — общие типы и (в следующих задачах) правила игры. Без шага сборки: пакеты импортируют исходники.
+- `shared/` (`@domino/shared`) — общие типы и правила раунда (`shared/src/rules`). Без шага сборки: пакеты импортируют исходники.
 - `server/` (`@domino/server`) — HTTP + Socket.IO сервер; проверяет каждое действие игрока.
 - `client/` (`@domino/client`) — React-приложение; только отображает состояние и отправляет намерения.
 - `e2e/` — сценарии Playwright.
 
 Сервер — источник истины. Контракт событий Socket.IO описан в одном месте — `shared/src/protocol.ts` — и типизирует обе стороны: переименование события ломает `typecheck` и на сервере, и на клиенте.
+
+## Правила раунда (`shared/src/rules`)
+
+Чистые детерминированные функции без сети и UI; состояние раунда (`RoundState`) — plain JSON. Спека: [`docs/specs/spec-3.md`](docs/specs/spec-3.md).
+
+```ts
+import { startRound, getLegalMoves, applyMove, toPlayerView } from '@domino/shared';
+
+let state = startRound({ seed: 42 }); // перемешивание mulberry32 + Fisher–Yates, раздача 7/7/14
+const [move] = getLegalMoves(state); // первый ход — всегда старший дубль
+const result = applyMove(state, state.currentPlayer, move!); // { ok: true, state } | { ok: false, error }
+if (result.ok) state = result.state;
+toPlayerView(state, 0); // то, что можно показать игроку 0: без костей соперника и базара
+```
+
+Тесты правил: `npx vitest run --project shared` (в названиях тестов — ID правил `R1:`…`R15:`).
 
 ## Переменные окружения сервера
 
