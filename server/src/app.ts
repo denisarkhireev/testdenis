@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Server } from 'socket.io';
@@ -8,11 +9,19 @@ import {
   type ServerToClientEvents,
   type SocketData,
 } from '@domino/shared';
+import { notifyRoomClosed, registerRoomHandlers } from './rooms/handlers';
+import { RoomManager } from './rooms/RoomManager';
+
+export const DEFAULT_RECONNECT_GRACE_MS = 60_000;
 
 export interface StartServerOptions {
   port: number;
   host?: string;
   corsOrigin?: string | string[];
+  /** Seed каждого нового раунда. По умолчанию crypto.randomInt(0, 2 ** 32). Тесты подставляют константу. */
+  roundSeed?: () => number;
+  /** Сколько держать место отключившегося игрока, мс. По умолчанию 60_000. */
+  reconnectGraceMs?: number;
 }
 
 export interface RunningServer {
@@ -37,6 +46,12 @@ export function startServer(opts: StartServerOptions): Promise<RunningServer> {
     { cors: { origin: opts.corsOrigin } },
   );
 
+  const rooms = new RoomManager({
+    roundSeed: opts.roundSeed ?? (() => randomInt(0, 2 ** 32)),
+    reconnectGraceMs: opts.reconnectGraceMs ?? DEFAULT_RECONNECT_GRACE_MS,
+    onClose: (room, reason) => notifyRoomClosed(io, room, reason),
+  });
+
   io.on('connection', (socket) => {
     console.info(`connected ${socket.id}`);
     socket.emit('server:hello', {
@@ -48,6 +63,8 @@ export function startServer(opts: StartServerOptions): Promise<RunningServer> {
     });
   });
 
+  registerRoomHandlers(io, rooms);
+
   return new Promise((resolve, reject) => {
     httpServer.once('error', reject);
     httpServer.listen(opts.port, opts.host, () => {
@@ -57,8 +74,13 @@ export function startServer(opts: StartServerOptions): Promise<RunningServer> {
         port,
         close: () =>
           new Promise<void>((resolveClose, rejectClose) => {
-            // io.close() отключает клиентов и закрывает http-сервер.
-            io.close((err) => (err ? rejectClose(err) : resolveClose()));
+            // io.close() отключает клиентов и закрывает http-сервер; grace-таймеры
+            // отключений, поставленные при этом, снимает closeAll().
+            io.close((err) => {
+              rooms.closeAll();
+              if (err) rejectClose(err);
+              else resolveClose();
+            });
           }),
       });
     });
