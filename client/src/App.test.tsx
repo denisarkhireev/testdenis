@@ -1,35 +1,8 @@
-import { EventEmitter } from 'node:events';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PROTOCOL_VERSION } from '@domino/shared';
 import { App } from './App';
-import type { ClientSocket } from './socket';
-
-function createFakeSocket() {
-  const emitter = new EventEmitter();
-  const fake = {
-    on: vi.fn((event: string, fn: (...args: unknown[]) => void) => {
-      emitter.on(event, fn);
-      return fake;
-    }),
-    off: vi.fn((event: string, fn: (...args: unknown[]) => void) => {
-      emitter.off(event, fn);
-      return fake;
-    }),
-    emit: (event: string, ...args: unknown[]) => {
-      act(() => {
-        emitter.emit(event, ...args);
-      });
-    },
-    listenerCount: (event: string) => emitter.listenerCount(event),
-  };
-  return { fake, socket: fake as unknown as ClientSocket };
-}
-
-const hello = (protocolVersion: number) => ({
-  protocolVersion,
-  serverTime: new Date().toISOString(),
-});
+import { createFakeSocket, hello } from './test/fakeSocket';
 
 const status = () => screen.getByTestId('connection-status');
 
@@ -48,7 +21,7 @@ describe('App connection status', () => {
   it('U3: shows "connected" after server:hello with matching protocol version', () => {
     const { fake, socket } = createFakeSocket();
     render(<App socket={socket} />);
-    fake.emit('server:hello', hello(PROTOCOL_VERSION));
+    fake.serverEmit('server:hello', hello(PROTOCOL_VERSION));
     expect(status()).toHaveTextContent(/^connected$/);
   });
 
@@ -56,7 +29,7 @@ describe('App connection status', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { fake, socket } = createFakeSocket();
     render(<App socket={socket} />);
-    fake.emit('server:hello', hello(PROTOCOL_VERSION + 1));
+    fake.serverEmit('server:hello', hello(PROTOCOL_VERSION + 1));
     expect(status()).toHaveTextContent(/^disconnected$/);
     expect(errorSpy).toHaveBeenCalledWith('Protocol version mismatch');
   });
@@ -64,11 +37,11 @@ describe('App connection status', () => {
   it('U5: goes connected → disconnected → connected on reconnect', () => {
     const { fake, socket } = createFakeSocket();
     render(<App socket={socket} />);
-    fake.emit('server:hello', hello(PROTOCOL_VERSION));
+    fake.serverEmit('server:hello', hello(PROTOCOL_VERSION));
     expect(status()).toHaveTextContent(/^connected$/);
-    fake.emit('disconnect', 'transport close');
+    fake.serverEmit('disconnect', 'transport close');
     expect(status()).toHaveTextContent(/^disconnected$/);
-    fake.emit('server:hello', hello(PROTOCOL_VERSION));
+    fake.serverEmit('server:hello', hello(PROTOCOL_VERSION));
     expect(status()).toHaveTextContent(/^connected$/);
   });
 

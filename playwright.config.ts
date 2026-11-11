@@ -6,6 +6,8 @@ export default defineConfig({
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: 'http://localhost:5173',
+    // E4 читает буфер обмена в Chromium.
+    permissions: ['clipboard-read', 'clipboard-write'],
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {

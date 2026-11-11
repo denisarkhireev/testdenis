@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Lobby } from './lobby/Lobby';
 import { createSocket, type ClientSocket } from './socket';
 import { useConnectionStatus, type ConnectionStatus } from './useConnectionStatus';
 
@@ -20,6 +21,7 @@ export function App({ socket: socketProp }: AppProps) {
     <main>
       <h1>Domino</h1>
       <p data-testid="connection-status">{STATUS_TEXT[status]}</p>
+      <Lobby socket={socket} status={status} />
     </main>
   );
 }
