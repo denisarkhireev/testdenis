@@ -1,0 +1,28 @@
+.lobby-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.lobby-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.lobby-error {
+  flex-basis: 100%;
+  color: #b00020;
+}
+
+.lobby-invite {
+  display: flex;
+  gap: 0.5rem;
+  max-width: 32rem;
+}
+
+.lobby-invite input {
+  flex: 1;
+  min-width: 0;
+}
