@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getLegalMoves, startRound } from '@domino/shared';
+import { getLegalMoves, startRound, type RoomClosedReason } from '@domino/shared';
 import { RoomManager, roomPhase, type Room } from './RoomManager';
 
 const SEED = 42;
 const GRACE = 1000;
 
-let onClose: ReturnType<typeof vi.fn>;
+let onClose: ReturnType<typeof vi.fn<(room: Room, reason: RoomClosedReason) => void>>;
 let rooms: RoomManager;
 
 function setup(): { room: Room; tokens: [string, string] } {
@@ -18,7 +18,7 @@ function setup(): { room: Room; tokens: [string, string] } {
 
 beforeEach(() => {
   vi.useFakeTimers();
-  onClose = vi.fn();
+  onClose = vi.fn<(room: Room, reason: RoomClosedReason) => void>();
   rooms = new RoomManager({ roundSeed: () => SEED, reconnectGraceMs: GRACE, onClose });
 });
 

@@ -21,7 +21,10 @@ describe('validate', () => {
       ok: true,
       value: { type: 'play', tile: [6, 3], end: 'right' },
     });
-    expect(parseMove({ type: 'draw', tile: [1, 1] })).toEqual({ ok: true, value: { type: 'draw' } });
+    expect(parseMove({ type: 'draw', tile: [1, 1] })).toEqual({
+      ok: true,
+      value: { type: 'draw' },
+    });
     expect(parseMove({ type: 'pass' })).toEqual({ ok: true, value: { type: 'pass' } });
 
     const bad: unknown[] = [
