@@ -1,0 +1,230 @@
+/* 3.1 / T5: игровой стол в одну колонку. Размеры костей — от --pip-unit. */
+.game-screen {
+  --pip-unit: 4px;
+  max-width: 48rem;
+  overflow-wrap: anywhere;
+}
+
+.game-screen *,
+.game-screen *::before,
+.game-screen *::after {
+  box-sizing: border-box;
+}
+
+.players {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.opponent-offline {
+  margin: 0 0 0.5rem;
+  color: #8a5300;
+}
+
+.game-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.turn-indicator,
+.round-finished {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: #f1f1f1;
+  font-weight: 600;
+}
+
+.turn-indicator--mine {
+  border-color: #2e7d32;
+  background: #e3f4e4;
+  color: #1b5e20;
+}
+
+.round-finished {
+  border-color: #1565c0;
+  background: #e3effb;
+}
+
+/* Кость */
+.tile {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid #555;
+  border-radius: calc(var(--tile-short) / 8);
+  background: #fffdf5;
+  color: #1d1d1d;
+  vertical-align: middle;
+}
+
+.tile--vertical {
+  flex-direction: column;
+  width: var(--tile-short);
+  height: calc(var(--tile-short) * 2);
+}
+
+.tile--horizontal {
+  flex-direction: row;
+  width: calc(var(--tile-short) * 2);
+  height: var(--tile-short);
+}
+
+.tile-half {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  padding: calc(var(--tile-short) / 10);
+}
+
+.pip {
+  width: 72%;
+  height: 72%;
+  place-self: center;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.tile-divider {
+  flex: none;
+  background: #555;
+}
+
+.tile--vertical .tile-divider {
+  height: 1px;
+  margin: 0 15%;
+}
+
+.tile--horizontal .tile-divider {
+  width: 1px;
+  margin: 15% 0;
+}
+
+/* Рука соперника */
+.opponent-hand {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.opponent-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.tile-back {
+  width: calc(var(--pip-unit) * 4);
+  height: calc(var(--pip-unit) * 8);
+  border: 1px solid #22305a;
+  border-radius: 3px;
+  background: repeating-linear-gradient(45deg, #34478a 0 3px, #2a3a73 3px 6px);
+}
+
+/* Стол */
+.board {
+  --tile-short: calc(var(--pip-unit) * 8);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-height: calc(var(--tile-short) * 2 + 1rem);
+  padding: 0.5rem;
+  border-radius: 8px;
+  background: #2f6b3f;
+}
+
+.board-empty {
+  margin: 0;
+  color: #e8f5e9;
+}
+
+.end-button {
+  min-height: 40px;
+  padding: 0 0.6rem;
+  border: 2px dashed #ffeb3b;
+  border-radius: 6px;
+  background: rgb(255 235 59 / 20%);
+  color: #fffde7;
+  font: inherit;
+  cursor: pointer;
+}
+
+.boneyard {
+  margin: 0;
+}
+
+/* Кнопки */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.controls button {
+  min-height: 40px;
+  font: inherit;
+}
+
+.move-error {
+  flex-basis: 100%;
+  min-height: 1.25em;
+  margin: 0;
+  color: #b00020;
+}
+
+/* Своя рука */
+.hand {
+  --tile-short: calc(var(--pip-unit) * 11);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 6px;
+}
+
+.hand-tile {
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  border-radius: calc(var(--tile-short) / 8);
+  background: none;
+  cursor: default;
+  transition:
+    transform 0.12s,
+    box-shadow 0.12s,
+    opacity 0.12s;
+}
+
+.hand-tile[data-playable='true'] {
+  cursor: pointer;
+  box-shadow: 0 0 0 3px #2e7d32;
+  transform: translateY(-4px);
+}
+
+.hand-tile[data-selected='true'] {
+  box-shadow: 0 0 0 3px #f9a825;
+  transform: translateY(-8px);
+}
+
+.hand--active .hand-tile:disabled {
+  opacity: 0.45;
+}
+
+@media (max-width: 480px) {
+  .game-screen {
+    /* 7 костей руки по ≈41 px в строку на 360 px. */
+    --pip-unit: 3.7px;
+  }
+
+  .hand {
+    gap: 4px;
+  }
+}
