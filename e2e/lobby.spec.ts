@@ -1,28 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-
-const TIMEOUT = { timeout: 10_000 };
-const INVITE_RE = /\/\?room=[A-HJ-NP-Z2-9]{6}$/;
-
-/** Вкладка A: «Создать игру» → экран ожидания; возвращает ссылку-приглашение. */
-async function createGame(page: Page, name: string): Promise<string> {
-  await page.goto('/');
-  await expect(page.getByTestId('connection-status')).toHaveText('connected', TIMEOUT);
-  await page.getByTestId('name-input').fill(name);
-  await page.getByTestId('create-button').click();
-  await expect(page.getByTestId('waiting-screen')).toBeVisible(TIMEOUT);
-  const link = await page.getByTestId('invite-link').inputValue();
-  expect(link).toMatch(INVITE_RE);
-  return link;
-}
-
-/** Вкладка по ссылке: имя → «Войти». */
-async function joinByLink(page: Page, link: string, name: string): Promise<void> {
-  await page.goto(link);
-  await expect(page.getByTestId('join-screen')).toBeVisible(TIMEOUT);
-  await expect(page.getByTestId('connection-status')).toHaveText('connected', TIMEOUT);
-  await page.getByTestId('name-input').fill(name);
-  await page.getByTestId('join-button').click();
-}
+import { expect, test } from '@playwright/test';
+import { createGame, joinByLink, TIMEOUT } from './helpers';
 
 test('E3: two tabs meet in one room via the invite link', async ({ context }) => {
   const a = await context.newPage();

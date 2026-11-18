@@ -22,6 +22,11 @@ export function createFakeSocket() {
       return fake;
     }),
     timeout: vi.fn((ms: number) => ({ ms, emitWithAck })),
+    active: false,
+    connect: vi.fn(() => {
+      fake.active = true;
+      return fake;
+    }),
     emitWithAck,
     serverEmit: (event: string, ...args: unknown[]) => {
       act(() => {

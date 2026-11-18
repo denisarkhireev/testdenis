@@ -20,6 +20,9 @@ export function useConnectionStatus(socket: ClientSocket): ConnectionStatus {
 
     socket.on('server:hello', onHello);
     socket.on('disconnect', onDisconnect);
+    // Эффект App выполняется после эффектов детей (useLobby), так что к этому моменту
+    // все подписки на `server:hello` уже есть.
+    if (!socket.active) socket.connect();
     return () => {
       socket.off('server:hello', onHello);
       socket.off('disconnect', onDisconnect);

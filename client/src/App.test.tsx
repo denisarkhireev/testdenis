@@ -45,6 +45,17 @@ describe('App connection status', () => {
     expect(status()).toHaveTextContent(/^connected$/);
   });
 
+  it('opens the connection only after subscribing to server:hello', () => {
+    const { fake, socket } = createFakeSocket();
+    fake.connect.mockImplementation(() => {
+      expect(fake.listenerCount('server:hello')).toBeGreaterThan(0);
+      fake.active = true;
+      return fake;
+    });
+    render(<App socket={socket} />);
+    expect(fake.connect).toHaveBeenCalledTimes(1);
+  });
+
   it('U6: removes all handlers on unmount', () => {
     const { fake, socket } = createFakeSocket();
     const { unmount } = render(<App socket={socket} />);
