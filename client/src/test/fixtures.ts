@@ -1,4 +1,4 @@
-import type { PlayerView, RoomStatePayload } from '@domino/shared';
+import type { MatchView, PlayerView, RoomStatePayload } from '@domino/shared';
 
 /** Вид раунда для компонентных тестов: начало раунда, ход `you = 0`, первый ход 6-6. */
 export function makeView(partial: Partial<PlayerView> = {}): PlayerView {
@@ -19,7 +19,21 @@ export function makeView(partial: Partial<PlayerView> = {}): PlayerView {
     currentPlayer: 0,
     status: 'playing',
     result: null,
+    opponentHand: null,
     legalMoves: [{ type: 'play', tile: [6, 6], end: 'right' }],
+    ...partial,
+  };
+}
+
+/** Матч в начале: 0:0 до 101, раунд 1, никто не готов. */
+export function makeMatch(partial: Partial<MatchView> = {}): MatchView {
+  return {
+    target: 101,
+    scores: [0, 0],
+    roundNumber: 1,
+    rounds: [],
+    winner: null,
+    ready: [false, false],
     ...partial,
   };
 }
@@ -38,6 +52,7 @@ export function makeRoom(
       { seat: 1, name: 'Боб', connected: true },
     ],
     game: view,
+    match: makeMatch(),
     ...overrides,
   };
 }

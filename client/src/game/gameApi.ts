@@ -12,3 +12,12 @@ export async function sendMove(socket: ClientSocket, move: Move): Promise<MoveRe
     return 'timeout';
   }
 }
+
+/** spec-7: «Следующий раунд» / «Реванш» — `game:ready {}`; reject → `'timeout'`. */
+export async function sendReady(socket: ClientSocket): Promise<MoveResult> {
+  try {
+    return await socket.timeout(ACK_TIMEOUT_MS).emitWithAck('game:ready', {});
+  } catch {
+    return 'timeout';
+  }
+}

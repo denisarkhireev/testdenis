@@ -18,6 +18,7 @@ const room = (phase: RoomStatePayload['phase']): RoomStatePayload => ({
   phase,
   players: [{ seat: 0, name: 'Аня', connected: true }],
   game: null,
+  match: null,
 });
 
 const session = { roomId: 'ABC234', playerToken: 't' };
