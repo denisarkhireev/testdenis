@@ -17,7 +17,7 @@ function midRound(): RoundState {
 }
 
 describe('toPlayerView', () => {
-  it('hides opponent and boneyard tiles mid-round (V1)', () => {
+  it('hides opponent and boneyard tiles mid-round, opponentHand is null (V1)', () => {
     const s = midRound();
     expect(s.status).toBe('playing');
     for (const you of [0, 1] as const) {
@@ -28,6 +28,7 @@ describe('toPlayerView', () => {
       expect(view.opponentHandCount).toBe(s.hands[opp].length);
       expect(view.boneyardCount).toBe(s.boneyard.length);
       expect(view.board).toEqual(s.board);
+      expect(view.opponentHand).toBeNull();
       const json = JSON.stringify(view);
       const hidden: Tile[] = [...s.hands[opp], ...s.boneyard].filter(
         (t) => !s.board.some((p) => sameTile(p.tile, t)),
@@ -44,12 +45,26 @@ describe('toPlayerView', () => {
           'currentPlayer',
           'hand',
           'legalMoves',
+          'opponentHand',
           'opponentHandCount',
           'result',
           'status',
           'you',
         ].sort(),
       );
+    }
+  });
+
+  it('V2 (#7): the opponent hand is revealed only after the round is finished', () => {
+    let s = startRound({ seed: 42 });
+    while (s.status === 'playing') {
+      const r = applyMove(s, s.currentPlayer, getLegalMoves(s)[0]!);
+      if (!r.ok) throw new Error(r.error);
+      s = r.state;
+    }
+    for (const you of [0, 1] as const) {
+      const opp = you === 0 ? 1 : 0;
+      expect(toPlayerView(s, you).opponentHand).toEqual(s.hands[opp]);
     }
   });
 

@@ -9,7 +9,7 @@ export interface GameScreenProps {
   status: ConnectionStatus;
 }
 
-/** Экран игры: игроки и баннер отключения (#5) + игровой стол (#6). */
+/** Экран игры: игроки и баннер отключения (#5) + игровой стол (#6) с табло и итогами (#7). */
 export function GameScreen({ room, socket, status }: GameScreenProps) {
   const opponent = room.players.find((player) => player.seat !== room.you);
 
@@ -28,7 +28,15 @@ export function GameScreen({ room, socket, status }: GameScreenProps) {
           Соперник отключился, ждём возвращения…
         </p>
       )}
-      {room.game && <GameTable room={room} game={room.game} socket={socket} status={status} />}
+      {room.game && (
+        <GameTable
+          room={room}
+          game={room.game}
+          match={room.match}
+          socket={socket}
+          status={status}
+        />
+      )}
     </section>
   );
 }

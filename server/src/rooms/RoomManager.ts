@@ -1,6 +1,10 @@
 import {
   applyMove,
+  createMatch,
+  nextRoundNumber,
+  recordRound,
   startRound,
+  type MatchState,
   type GameErrorCode,
   type Move,
   type PlayerIndex,
@@ -26,11 +30,19 @@ export interface Room {
   seats: [SeatState, SeatState | null];
   /** null в фазе waiting. Хранится только на сервере (K5). */
   round: RoundState | null;
+  /** null в фазе waiting; иначе текущий матч (spec-7 M1). */
+  match: MatchState | null;
+  /** Готовность мест к следующему раунду/реваншу (M4–M6). Хранится за местом, не за сокетом (M8). */
+  ready: [boolean, boolean];
 }
 
 export interface RoomManagerOptions {
   roundSeed: () => number;
   reconnectGraceMs: number;
+  /** Цель матча (spec-7 M1), по умолчанию MATCH_TARGET. */
+  matchTarget?: number;
+  /** Фабрика раунда — только для тестов (N11). По умолчанию startRound({ seed: roundSeed() }). */
+  startRound?: () => RoundState;
   /** Вызывается, когда комната закрыта и уже удалена из менеджера. */
   onClose: (room: Room, reason: RoomClosedReason) => void;
 }
@@ -66,6 +78,8 @@ export class RoomManager {
       id,
       seats: [{ name, token, socketId, graceTimer: null }, null],
       round: null,
+      match: null,
+      ready: [false, false],
     };
     this.rooms.set(id, room);
     return ok({ room, seat: 0, token });
@@ -81,8 +95,10 @@ export class RoomManager {
     if (room.seats[1] !== null) return err('ROOM_FULL');
     const token = generateToken();
     room.seats[1] = { name, token, socketId, graceTimer: null };
-    // K4: waiting → playing синхронно при успешном входе.
-    room.round = startRound({ seed: this.opts.roundSeed() });
+    // K4: waiting → playing синхронно при успешном входе; M1: вместе с первым раундом — матч.
+    room.match = createMatch(this.opts.matchTarget);
+    room.ready = [false, false];
+    room.round = this.newRound();
     return ok({ room, seat: 1, token });
   }
 
@@ -110,10 +126,39 @@ export class RoomManager {
     const room = this.rooms.get(roomId);
     if (!room) return err('NOT_IN_ROOM');
     if (room.round === null) return err('GAME_NOT_STARTED');
-    const result = applyMove(room.round, seat, move);
+    const previous = room.round;
+    const result = applyMove(previous, seat, move);
     if (!result.ok) return err(result.error);
     room.round = result.state;
+    // M2, M3: очки раунда — ровно один раз, в момент перехода playing → finished.
+    if (previous.status === 'playing' && result.state.status === 'finished' && room.match) {
+      room.match = recordRound(room.match, result.state.result!);
+    }
     return ok({ room });
+  }
+
+  /**
+   * «Следующий раунд» / «Реванш» от места (M4–M7). `changed: false` — повтор, состояние то же (M6).
+   * Когда готовы оба — синхронно стартует новый раунд (или новый матч, если этот окончен).
+   */
+  ready(
+    roomId: string,
+    seat: PlayerIndex,
+  ): Result<{ room: Room; changed: boolean; started: 'round' | 'match' | null }, GameErrorCode> {
+    const room = this.rooms.get(roomId);
+    if (!room) return err('NOT_IN_ROOM');
+    if (room.round === null || room.match === null) return err('GAME_NOT_STARTED');
+    if (room.round.status === 'playing') return err('ROUND_NOT_FINISHED');
+    if (room.ready[seat]) return ok({ room, changed: false, started: null });
+
+    room.ready[seat] = true;
+    if (!room.ready[0] || !room.ready[1]) return ok({ room, changed: true, started: null });
+
+    const rematch = room.match.winner !== null;
+    room.match = rematch ? createMatch(room.match.target) : nextRoundNumber(room.match);
+    room.round = this.newRound();
+    room.ready = [false, false];
+    return ok({ room, changed: true, started: rematch ? 'match' : 'round' });
   }
 
   /**
@@ -137,6 +182,12 @@ export class RoomManager {
   closeAll(): void {
     for (const room of this.rooms.values()) this.clearTimers(room);
     this.rooms.clear();
+  }
+
+  private newRound(): RoundState {
+    return this.opts.startRound
+      ? this.opts.startRound()
+      : startRound({ seed: this.opts.roundSeed() });
   }
 
   private close(room: Room, reason: RoomClosedReason): void {

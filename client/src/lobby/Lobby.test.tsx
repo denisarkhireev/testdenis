@@ -16,6 +16,7 @@ function roomState(patch: Partial<RoomStatePayload> = {}): RoomStatePayload {
     phase: 'waiting',
     players: [{ seat: 0, name: 'Аня', connected: true }],
     game: null,
+    match: null,
     ...patch,
   };
 }

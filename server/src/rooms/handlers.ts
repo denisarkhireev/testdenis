@@ -33,6 +33,7 @@ export function toRoomState(room: Room, you: PlayerIndex): RoomStatePayload {
       return state ? [{ seat, name: state.name, connected: state.socketId !== null }] : [];
     }),
     game: room.round ? toPlayerView(room.round, you) : null,
+    match: room.match ? { ...room.match, ready: [room.ready[0], room.ready[1]] } : null,
   };
 }
 
@@ -167,6 +168,28 @@ export function registerRoomHandlers(io: GameServer, rooms: RoomManager): void {
         if (!result.ok) return ack({ ok: false, error: result.error });
         ack({ ok: true });
         broadcastState(io, result.value.room);
+      }),
+    );
+
+    socket.on(
+      'game:ready',
+      withAck('game:ready', (payload, ack) => {
+        if (!isObject(payload)) return ack({ ok: false, error: 'INVALID_PAYLOAD' });
+        const { roomId, seat } = socket.data;
+        if (roomId === undefined || seat === undefined) {
+          return ack({ ok: false, error: 'NOT_IN_ROOM' });
+        }
+
+        const result = rooms.ready(roomId, seat);
+        if (!result.ok) return ack({ ok: false, error: result.error });
+        const { room, changed, started } = result.value;
+        ack({ ok: true });
+        if (!changed) return;
+        if (started === 'match') console.info(`room ${room.id} rematch`);
+        else if (started === 'round') {
+          console.info(`room ${room.id} round ${room.match!.roundNumber} started`);
+        } else console.info(`room ${room.id} ready (seat ${seat})`);
+        broadcastState(io, room);
       }),
     );
 

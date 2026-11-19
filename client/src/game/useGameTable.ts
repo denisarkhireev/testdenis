@@ -4,7 +4,7 @@ import { TIMEOUT_TEXT } from '../lobby/errors';
 import type { ClientSocket } from '../socket';
 import type { ConnectionStatus } from '../useConnectionStatus';
 import { GAME_ERROR_TEXT } from './errors';
-import { sendMove } from './gameApi';
+import { sendMove, sendReady, type MoveResult } from './gameApi';
 import { canDraw, canPass, isPlayable, playEnds } from './moves';
 
 /**
@@ -26,6 +26,8 @@ export interface GameTable {
   draw(): void;
   pass(): void;
   cancel(): void;
+  /** spec-7: «Следующий раунд» / «Реванш». */
+  ready(): void;
 }
 
 export function useGameTable(
@@ -55,14 +57,15 @@ export function useGameTable(
     game.currentPlayer === game.you &&
     !pending;
 
-  const send = useCallback(
-    (move: Move) => {
+  /** Один запрос за раз (G5): ход или готовность; ошибка ack — в `error`. */
+  const request = useCallback(
+    (call: () => Promise<MoveResult>) => {
       if (pendingRef.current) return;
       pendingRef.current = true;
       setPending(true);
       setSelection(null);
       setFailure(null);
-      void sendMove(socket, move).then((result) => {
+      void call().then((result) => {
         pendingRef.current = false;
         if (!mountedRef.current) return;
         setPending(false);
@@ -70,8 +73,17 @@ export function useGameTable(
         else if (!result.ok) setFailure({ game, value: GAME_ERROR_TEXT[result.error] });
       });
     },
-    [socket, game],
+    [game],
   );
+
+  const send = useCallback(
+    (move: Move) => request(() => sendMove(socket, move)),
+    [request, socket],
+  );
+
+  const ready = useCallback(() => {
+    if (status === 'connected') request(() => sendReady(socket));
+  }, [request, socket, status]);
 
   const clickTile = useCallback(
     (tile: Tile) => {
@@ -106,5 +118,16 @@ export function useGameTable(
 
   const cancel = useCallback(() => setSelection(null), []);
 
-  return { selected, pending, error, interactive, clickTile, chooseEnd, draw, pass, cancel };
+  return {
+    selected,
+    pending,
+    error,
+    interactive,
+    clickTile,
+    chooseEnd,
+    draw,
+    pass,
+    cancel,
+    ready,
+  };
 }

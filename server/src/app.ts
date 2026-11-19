@@ -3,6 +3,8 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Server } from 'socket.io';
 import {
+  createMatch,
+  MATCH_TARGET,
   PROTOCOL_VERSION,
   type ClientToServerEvents,
   type InterServerEvents,
@@ -22,6 +24,8 @@ export interface StartServerOptions {
   roundSeed?: () => number;
   /** Сколько держать место отключившегося игрока, мс. По умолчанию 60_000. */
   reconnectGraceMs?: number;
+  /** Цель матча, очков (spec-7 M1). По умолчанию MATCH_TARGET = 101. */
+  matchTarget?: number;
 }
 
 export interface RunningServer {
@@ -30,6 +34,8 @@ export interface RunningServer {
 }
 
 export function startServer(opts: StartServerOptions): Promise<RunningServer> {
+  const matchTarget = opts.matchTarget ?? MATCH_TARGET;
+  createMatch(matchTarget); // throw на старте, а не при первом room:join
   const httpServer = createServer((req, res) => {
     // Запросы /socket.io/* Socket.IO перехватывает раньше и сюда не передаёт.
     if (req.method === 'GET' && req.url === '/health') {
@@ -49,6 +55,7 @@ export function startServer(opts: StartServerOptions): Promise<RunningServer> {
   const rooms = new RoomManager({
     roundSeed: opts.roundSeed ?? (() => randomInt(0, 2 ** 32)),
     reconnectGraceMs: opts.reconnectGraceMs ?? DEFAULT_RECONNECT_GRACE_MS,
+    matchTarget,
     onClose: (room, reason) => notifyRoomClosed(io, room, reason),
   });
 

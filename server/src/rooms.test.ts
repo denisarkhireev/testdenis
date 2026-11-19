@@ -32,6 +32,7 @@ describe('rooms', () => {
       phase: 'waiting',
       players: [{ seat: 0, name: 'A', connected: true }],
       game: null,
+      match: null,
     });
   });
 

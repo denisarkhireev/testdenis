@@ -256,25 +256,7 @@ describe('GameTable', () => {
     expect(fake.emitWithAck).not.toHaveBeenCalled();
   });
 
-  it.each([
-    [0, 'domino', 'Вы выиграли раунд: +17'],
-    [1, 'domino', 'Раунд выиграл Боб: +17'],
-    [1, 'fish', 'Раунд выиграл Боб: +17 (рыба)'],
-    [null, 'fish', 'Рыба — ничья'],
-  ] as const)('GT-12: finished, winner %s (%s) → "%s"', (winner, reason, text) => {
-    setup(
-      makeView({
-        status: 'finished',
-        board: [{ tile: [6, 6], left: 6, right: 6 }],
-        legalMoves: [],
-        result: { winner, reason, points: winner === null ? 0 : 17, handPoints: [0, 17] },
-      }),
-    );
-    expect(byId('round-finished')).toHaveTextContent(text);
-    expect(queryById('turn-indicator')).toBeNull();
-    expectAllControlsDisabled();
-    expect(byId('board-tile-0')).toBeInTheDocument();
-  });
+  // GT-12 (баннер итога раунда) заменён экраном итогов: см. RoundSummary.test.tsx (S2–S4).
 
   it('GT-13: opponent-offline still works inside the table', () => {
     const { fake } = setup();
