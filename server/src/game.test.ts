@@ -26,26 +26,40 @@ const MAX_MOVES = 100;
 
 const isPip = (v: unknown) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 6;
 
-/** Все массивы-кости [a, b] в payload (кроме handPoints — это суммы очков, не кость). */
-function collectTiles(value: unknown, out: Tile[] = [], key = ''): Tile[] {
+/** Числа очков (не кости): суммы рук и счёт матча. */
+const SCORE_KEYS = ['handPoints', 'scores'];
+
+/** Все массивы-кости [a, b] в payload, кроме очков (SCORE_KEYS) и разрешённых полей `skip`. */
+function collectTiles(value: unknown, skip: string[], out: Tile[] = [], key = ''): Tile[] {
+  if (skip.includes(key)) return out;
   if (Array.isArray(value)) {
-    if (key !== 'handPoints' && value.length === 2 && isPip(value[0]) && isPip(value[1])) {
+    if (!SCORE_KEYS.includes(key) && value.length === 2 && isPip(value[0]) && isPip(value[1])) {
       out.push(value as unknown as Tile);
     }
-    for (const item of value) collectTiles(item, out);
+    for (const item of value) collectTiles(item, skip, out);
   } else if (typeof value === 'object' && value !== null) {
-    for (const [k, v] of Object.entries(value)) collectTiles(v, out, k);
+    for (const [k, v] of Object.entries(value)) collectTiles(v, skip, out, k);
   }
   return out;
 }
 
-/** Раздел 5 spec-4: в payload игрока нет костей соперника/базара, seed, токенов, RoundState. */
-function expectConfidential(payload: RoomStatePayload, truth: RoundState, tokens: string[]): void {
+/**
+ * Раздел 5 spec-4 / N10 spec-7: в payload игрока нет костей соперника/базара, seed, токенов,
+ * RoundState. Исключение — после конца раунда рука соперника в `game.opponentHand` (M9).
+ */
+function expectConfidential(
+  payload: RoomStatePayload,
+  truth: RoundState,
+  tokens: string[],
+): void {
   const you = payload.you;
+  const finished = truth.status === 'finished';
+  if (!finished) expect(payload.game?.opponentHand ?? null).toBeNull();
+  else expect(payload.game!.opponentHand).toEqual(truth.hands[you === 0 ? 1 : 0]);
   const hidden = new Set(
     [...truth.hands[you === 0 ? 1 : 0], ...truth.boneyard].map((t) => tileKey(t)),
   );
-  for (const tile of collectTiles(payload)) {
+  for (const tile of collectTiles(payload, finished ? ['opponentHand'] : [])) {
     expect(hidden.has(tileKey(tile)), `leaked tile ${tileKey(tile)}`).toBe(false);
   }
   const json = JSON.stringify(payload);

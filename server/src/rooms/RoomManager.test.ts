@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getLegalMoves, startRound, type RoomClosedReason } from '@domino/shared';
+import {
+  applyMove,
+  createMatch,
+  getLegalMoves,
+  startRound,
+  type RoomClosedReason,
+  type RoundState,
+} from '@domino/shared';
 import { RoomManager, roomPhase, type Room } from './RoomManager';
 
 const SEED = 42;
@@ -114,5 +121,147 @@ describe('RoomManager', () => {
     vi.advanceTimersByTime(GRACE * 2);
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+/** Доигрывает раунд комнаты первым допустимым ходом. */
+function playToEnd(room: Room): void {
+  for (let i = 0; room.round!.status === 'playing'; i++) {
+    if (i > 200) throw new Error('round did not finish');
+    const seat = room.round!.currentPlayer;
+    const res = rooms.move(room.id, seat, getLegalMoves(room.round!)[0]!);
+    if (!res.ok) throw new Error(res.error);
+  }
+}
+
+/** Конец раунда «рыбой» с равными руками после хода [3,6] местом 0 (как E3 в shared). */
+function fishDrawRound(): RoundState {
+  return {
+    hands: [
+      [
+        [3, 6],
+        [3, 4],
+      ],
+      [[2, 5]],
+    ],
+    boneyard: [],
+    board: [{ tile: [3, 6], left: 6, right: 3 }],
+    openingTile: [6, 6],
+    currentPlayer: 0,
+    status: 'playing',
+    result: null,
+  };
+}
+
+describe('RoomManager: match (spec-7)', () => {
+  it('N1: join starts a match 0:0 with nobody ready; waiting has no match', () => {
+    const created = rooms.create('s0', 'A');
+    expect(created.ok && created.value.room.match).toBeNull();
+    const { room } = setup();
+    expect(room.match).toEqual(createMatch());
+    expect(room.ready).toEqual([false, false]);
+  });
+
+  it('N2: the finishing move records the round result exactly once', () => {
+    const { room } = setup();
+    playToEnd(room);
+    const result = room.round!.result!;
+    expect(result.winner).not.toBeNull();
+    expect(room.match!.scores[result.winner!]).toBe(result.points);
+    expect(room.match!.rounds).toEqual([result]);
+    // R14: ход после конца раунда отклоняется и очков не добавляет
+    expect(rooms.move(room.id, 0, { type: 'pass' })).toEqual({
+      ok: false,
+      error: 'ROUND_FINISHED',
+    });
+    expect(room.match!.rounds).toHaveLength(1);
+  });
+
+  it('M7: ready errors — NOT_IN_ROOM, GAME_NOT_STARTED, ROUND_NOT_FINISHED', () => {
+    expect(rooms.ready('NOPE22', 0)).toEqual({ ok: false, error: 'NOT_IN_ROOM' });
+    const created = rooms.create('s0', 'A');
+    if (!created.ok) throw new Error();
+    expect(rooms.ready(created.value.room.id, 0)).toEqual({
+      ok: false,
+      error: 'GAME_NOT_STARTED',
+    });
+    const { room } = setup();
+    expect(rooms.ready(room.id, 0)).toEqual({ ok: false, error: 'ROUND_NOT_FINISHED' });
+    expect(room.ready).toEqual([false, false]);
+  });
+
+  it('M4/M6: both ready → next round with the score kept; repeat is a no-op', () => {
+    const { room } = setup();
+    playToEnd(room);
+    const scores = [...room.match!.scores];
+    expect(rooms.ready(room.id, 1)).toMatchObject({
+      ok: true,
+      value: { changed: true, started: null },
+    });
+    expect(rooms.ready(room.id, 1)).toMatchObject({
+      ok: true,
+      value: { changed: false, started: null },
+    });
+    expect(room.ready).toEqual([false, true]);
+    expect(room.round!.status).toBe('finished');
+
+    expect(rooms.ready(room.id, 0)).toMatchObject({
+      ok: true,
+      value: { changed: true, started: 'round' },
+    });
+    expect(room.ready).toEqual([false, false]);
+    expect(room.round).toEqual(startRound({ seed: SEED }));
+    expect(room.match).toMatchObject({ roundNumber: 2, scores, winner: null });
+    expect(room.match!.rounds).toHaveLength(1);
+  });
+
+  it('M5: a finished match + both ready → rematch 0:0 in the same room', () => {
+    rooms = new RoomManager({
+      roundSeed: () => SEED,
+      reconnectGraceMs: GRACE,
+      onClose,
+      matchTarget: 1,
+    });
+    const { room } = setup();
+    playToEnd(room);
+    expect(room.match!.winner).toBe(room.round!.result!.winner);
+    rooms.ready(room.id, 0);
+    expect(rooms.ready(room.id, 1)).toMatchObject({ ok: true, value: { started: 'match' } });
+    expect(room.match).toEqual(createMatch(1));
+    expect(room.round!.status).toBe('playing');
+    expect(rooms.get(room.id)).toBe(room);
+  });
+
+  it('M8: readiness survives disconnect and rejoin', () => {
+    const { room, tokens } = setup();
+    playToEnd(room);
+    rooms.ready(room.id, 0);
+    rooms.disconnect(room.id, 0, 's0');
+    rooms.rejoin('s0b', room.id, tokens[0]);
+    expect(room.ready).toEqual([true, false]);
+  });
+
+  it('N11: a drawn fish keeps the score and is added to the history', () => {
+    rooms = new RoomManager({
+      roundSeed: () => SEED,
+      reconnectGraceMs: GRACE,
+      onClose,
+      startRound: fishDrawRound,
+    });
+    const { room } = setup();
+    // контроль: та же позиция в shared действительно даёт ничью
+    const local = applyMove(fishDrawRound(), 0, { type: 'play', tile: [3, 6], end: 'right' });
+    expect(local.ok && local.state.result?.winner).toBeNull();
+
+    expect(rooms.move(room.id, 0, { type: 'play', tile: [3, 6], end: 'right' }).ok).toBe(true);
+    expect(room.round!.result).toEqual({
+      reason: 'fish',
+      winner: null,
+      points: 0,
+      handPoints: [7, 7],
+    });
+    expect(room.match!.scores).toEqual([0, 0]);
+    expect(room.match!.rounds).toHaveLength(1);
+    expect(room.match!.winner).toBeNull();
   });
 });
