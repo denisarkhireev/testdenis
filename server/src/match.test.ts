@@ -132,7 +132,12 @@ describe('match over sockets', () => {
     expect(await emitAck(b, 'game:ready', {})).toEqual({ ok: true });
     for (const s of await next) {
       expect(s.phase).toBe('playing');
-      expect(s.match).toMatchObject({ roundNumber: 2, ready: [false, false], scores, winner: null });
+      expect(s.match).toMatchObject({
+        roundNumber: 2,
+        ready: [false, false],
+        scores,
+        winner: null,
+      });
       expect(s.match!.rounds).toHaveLength(1);
       expect(s.game!.board).toEqual([]);
       expect(s.game!.hand).toHaveLength(7);

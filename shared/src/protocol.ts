@@ -59,11 +59,7 @@ export type RoomErrorCode =
   | 'INVALID_TOKEN';
 
 export type GameErrorCode =
-  | MoveError
-  | 'INVALID_PAYLOAD'
-  | 'NOT_IN_ROOM'
-  | 'GAME_NOT_STARTED'
-  | 'ROUND_NOT_FINISHED';
+  MoveError | 'INVALID_PAYLOAD' | 'NOT_IN_ROOM' | 'GAME_NOT_STARTED' | 'ROUND_NOT_FINISHED';
 
 export type AckResult<T, E extends string> = ({ ok: true } & T) | { ok: false; error: E };
 

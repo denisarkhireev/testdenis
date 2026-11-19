@@ -18,32 +18,32 @@
 
 ## 2. Контекст (что уже есть)
 
-| Что | Где | Использование в #7 |
-| --- | --- | --- |
-| `RoundResult { reason, winner, points, handPoints }`, `resolveRound` (R11–R13: домино — победитель тот, кто вышел; рыба — у кого меньше очков на руке; равенство — ничья, 0 очков; победитель получает очки руки соперника) | `shared/src/rules/types.ts`, `scoring.ts` | Без изменений — это очки раунда, которые идут в счёт матча |
-| `startRound({ seed })` — первый ход у владельца старшей кости (R4) | `shared/src/rules/round.ts` | Вызывается для каждого раунда матча, правило первого хода не меняется |
-| `toPlayerView` — при `finished` отдаёт `result`, но руку соперника не раскрывает | `shared/src/rules/view.ts` | Добавить раскрытие руки соперника только при `finished` |
-| `RoomManager`: одна `round` на комнату, `roomPhase()` → `waiting/playing/finished`; K12 — после конца раунда комната живёт, `game:move` → `ROUND_FINISHED` | `server/src/rooms/RoomManager.ts` | Добавить `match` и готовность мест; новый раунд/реванш без смены `roomId` |
-| `toRoomState`, `broadcastState`, `withAck` | `server/src/rooms/handlers.ts` | Новый обработчик `game:ready`, новое поле `match` в payload |
-| `RoomStatePayload`, `GameErrorCode`, `ClientToServerEvents` | `shared/src/protocol.ts` | Расширить (§5) |
-| `RoundResultBanner` (`data-testid="round-finished"`) — минимальный итог (spec-6 §3.5) | `client/src/game/RoundResultBanner.tsx`, `GameTable.tsx` | Заменить экраном итогов `RoundSummary` |
-| `GAME_ERROR_TEXT` — исчерпывающий маппинг кодов | `client/src/game/errors.ts` | Добавить новый код |
-| `selectScreen`: `finished` → экран `game` | `client/src/lobby/useLobby.ts` | Без изменений |
-| e2e-хелперы `startGame`, `playStep`, `readTable`, `makeMove` (seed-независимый ход) | `e2e/helpers.ts` | Новый хелпер `playRoundToEnd` |
+| Что                                                                                                                                                                                                                         | Где                                                      | Использование в #7                                                        |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `RoundResult { reason, winner, points, handPoints }`, `resolveRound` (R11–R13: домино — победитель тот, кто вышел; рыба — у кого меньше очков на руке; равенство — ничья, 0 очков; победитель получает очки руки соперника) | `shared/src/rules/types.ts`, `scoring.ts`                | Без изменений — это очки раунда, которые идут в счёт матча                |
+| `startRound({ seed })` — первый ход у владельца старшей кости (R4)                                                                                                                                                          | `shared/src/rules/round.ts`                              | Вызывается для каждого раунда матча, правило первого хода не меняется     |
+| `toPlayerView` — при `finished` отдаёт `result`, но руку соперника не раскрывает                                                                                                                                            | `shared/src/rules/view.ts`                               | Добавить раскрытие руки соперника только при `finished`                   |
+| `RoomManager`: одна `round` на комнату, `roomPhase()` → `waiting/playing/finished`; K12 — после конца раунда комната живёт, `game:move` → `ROUND_FINISHED`                                                                  | `server/src/rooms/RoomManager.ts`                        | Добавить `match` и готовность мест; новый раунд/реванш без смены `roomId` |
+| `toRoomState`, `broadcastState`, `withAck`                                                                                                                                                                                  | `server/src/rooms/handlers.ts`                           | Новый обработчик `game:ready`, новое поле `match` в payload               |
+| `RoomStatePayload`, `GameErrorCode`, `ClientToServerEvents`                                                                                                                                                                 | `shared/src/protocol.ts`                                 | Расширить (§5)                                                            |
+| `RoundResultBanner` (`data-testid="round-finished"`) — минимальный итог (spec-6 §3.5)                                                                                                                                       | `client/src/game/RoundResultBanner.tsx`, `GameTable.tsx` | Заменить экраном итогов `RoundSummary`                                    |
+| `GAME_ERROR_TEXT` — исчерпывающий маппинг кодов                                                                                                                                                                             | `client/src/game/errors.ts`                              | Добавить новый код                                                        |
+| `selectScreen`: `finished` → экран `game`                                                                                                                                                                                   | `client/src/lobby/useLobby.ts`                           | Без изменений                                                             |
+| e2e-хелперы `startGame`, `playStep`, `readTable`, `makeMove` (seed-независимый ход)                                                                                                                                         | `e2e/helpers.ts`                                         | Новый хелпер `playRoundToEnd`                                             |
 
 ## 3. Правила матча (нормативно)
 
-| ID | Правило |
-| --- | --- |
-| M1 | Матч начинается при входе второго игрока (вместе с первым раундом): счёт `[0, 0]`, цель `target = 101`, номер раунда 1. |
-| M2 | Когда раунд переходит в `finished`, сервер **ровно один раз** прибавляет `result.points` к счёту `result.winner`. Ничья (`winner === null`) — счёт не меняется. Результат раунда добавляется в историю `rounds`. |
-| M3 | Если после начисления счёт победителя раунда ≥ `target` — матч окончен, `match.winner = winner`. Ничьей матча не бывает (за раунд очки получает максимум один игрок). |
-| M4 | Матч не окончен и раунд `finished` → каждый игрок может отправить `game:ready`. Когда готовы **оба** — сервер синхронно стартует новый раунд (`startRound({ seed: roundSeed() })`), `roundNumber += 1`, готовность сбрасывается. Первый ход — по R4 (старшая кость), независимо от того, кто выиграл прошлый раунд. |
-| M5 | Матч окончен → `game:ready` означает «Реванш». Когда готовы оба — новый матч: счёт `[0, 0]`, `rounds = []`, `roundNumber = 1`, `winner = null`, новый раунд. |
-| M6 | `game:ready` идемпотентен: повтор от уже готового игрока → `ok`, состояние не меняется, `room:state` не рассылается. Отменить готовность нельзя. |
-| M7 | `game:ready` во время раунда (`playing`) → `ROUND_NOT_FINISHED`; в `waiting` → `GAME_NOT_STARTED`; без комнаты → `NOT_IN_ROOM`. |
-| M8 | Готовность хранится за местом, а не за сокетом: переживает отключение/`room:rejoin` в пределах grace. Отключённый соперник не блокирует свою готовность, но новый раунд стартует только при готовности обоих. Закрытие комнаты по grace (K9) — без начисления/техпоражения. |
-| M9 | Рука соперника раскрывается в `PlayerView` **только** при `status === 'finished'`; во время раунда утечек нет (G8 остаётся в силе). |
+| ID  | Правило                                                                                                                                                                                                                                                                                                             |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M1  | Матч начинается при входе второго игрока (вместе с первым раундом): счёт `[0, 0]`, цель `target = 101`, номер раунда 1.                                                                                                                                                                                             |
+| M2  | Когда раунд переходит в `finished`, сервер **ровно один раз** прибавляет `result.points` к счёту `result.winner`. Ничья (`winner === null`) — счёт не меняется. Результат раунда добавляется в историю `rounds`.                                                                                                    |
+| M3  | Если после начисления счёт победителя раунда ≥ `target` — матч окончен, `match.winner = winner`. Ничьей матча не бывает (за раунд очки получает максимум один игрок).                                                                                                                                               |
+| M4  | Матч не окончен и раунд `finished` → каждый игрок может отправить `game:ready`. Когда готовы **оба** — сервер синхронно стартует новый раунд (`startRound({ seed: roundSeed() })`), `roundNumber += 1`, готовность сбрасывается. Первый ход — по R4 (старшая кость), независимо от того, кто выиграл прошлый раунд. |
+| M5  | Матч окончен → `game:ready` означает «Реванш». Когда готовы оба — новый матч: счёт `[0, 0]`, `rounds = []`, `roundNumber = 1`, `winner = null`, новый раунд.                                                                                                                                                        |
+| M6  | `game:ready` идемпотентен: повтор от уже готового игрока → `ok`, состояние не меняется, `room:state` не рассылается. Отменить готовность нельзя.                                                                                                                                                                    |
+| M7  | `game:ready` во время раунда (`playing`) → `ROUND_NOT_FINISHED`; в `waiting` → `GAME_NOT_STARTED`; без комнаты → `NOT_IN_ROOM`.                                                                                                                                                                                     |
+| M8  | Готовность хранится за местом, а не за сокетом: переживает отключение/`room:rejoin` в пределах grace. Отключённый соперник не блокирует свою готовность, но новый раунд стартует только при готовности обоих. Закрытие комнаты по grace (K9) — без начисления/техпоражения.                                         |
+| M9  | Рука соперника раскрывается в `PlayerView` **только** при `status === 'finished'`; во время раунда утечек нет (G8 остаётся в силе).                                                                                                                                                                                 |
 
 ## 4. Изменения по пакетам
 
@@ -66,9 +66,9 @@ export interface MatchState {
   winner: PlayerIndex | null;
 }
 
-export function createMatch(target?: number): MatchState;              // M1, M5
+export function createMatch(target?: number): MatchState; // M1, M5
 export function recordRound(match: MatchState, result: RoundResult): MatchState; // M2, M3; throw, если матч уже окончен
-export function nextRoundNumber(match: MatchState): MatchState;        // M4: roundNumber + 1
+export function nextRoundNumber(match: MatchState): MatchState; // M4: roundNumber + 1
 ```
 
 - `recordRound` не мутирует вход; `target` валидируется в `createMatch` (целое > 0, иначе throw).
@@ -140,15 +140,15 @@ export type GameReadyPayload = Record<string, never>; // {} ; любой объ�
 
 2. **`game/RoundSummary.tsx`** — экран итогов, показывается **вместо** `turn-indicator` и блока `controls`, когда `game.status === 'finished'` (стол-цепочка остаётся видимой выше). Корень `data-testid="round-summary"`. Содержимое:
 
-   | Элемент | testid | Текст |
-   | --- | --- | --- |
-   | Заголовок итога раунда (сохраняем testid из #6) | `round-finished` | `winner === you`: «Вы выиграли раунд: +N»; соперник: «Раунд выиграл <имя>: +N»; ничья: «Рыба — ничья». Суффикс причины: `domino` — « (домино)», `fish` с победителем — « (рыба)» |
-   | Очки раунда | `round-points` | число `result.points` |
-   | Своя рука | `summary-hand-<seat>` | кости `TileFace` (лицом), пустая рука — текст «пусто»; подпись «<имя>: N очк.» где N = `handPoints[seat]` (`summary-hand-points-<seat>`) |
-   | Рука соперника | `summary-hand-<seat>` | из `game.opponentHand`, так же |
-   | Итог матча (только если `match.winner !== null`) | `match-finished` | «Вы выиграли матч!» / «Матч выиграл <имя>» + финальный счёт |
-   | Кнопка | `continue-button` | матч идёт: «Следующий раунд»; матч окончен: «Реванш» |
-   | Статус готовности | `ready-status` | я готов: «Ждём соперника…» (кнопка `disabled`); соперник готов, я нет: «Соперник готов»; иначе пусто |
+   | Элемент                                          | testid                | Текст                                                                                                                                                                            |
+   | ------------------------------------------------ | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | Заголовок итога раунда (сохраняем testid из #6)  | `round-finished`      | `winner === you`: «Вы выиграли раунд: +N»; соперник: «Раунд выиграл <имя>: +N»; ничья: «Рыба — ничья». Суффикс причины: `domino` — « (домино)», `fish` с победителем — « (рыба)» |
+   | Очки раунда                                      | `round-points`        | число `result.points`                                                                                                                                                            |
+   | Своя рука                                        | `summary-hand-<seat>` | кости `TileFace` (лицом), пустая рука — текст «пусто»; подпись «<имя>: N очк.» где N = `handPoints[seat]` (`summary-hand-points-<seat>`)                                         |
+   | Рука соперника                                   | `summary-hand-<seat>` | из `game.opponentHand`, так же                                                                                                                                                   |
+   | Итог матча (только если `match.winner !== null`) | `match-finished`      | «Вы выиграли матч!» / «Матч выиграл <имя>» + финальный счёт                                                                                                                      |
+   | Кнопка                                           | `continue-button`     | матч идёт: «Следующий раунд»; матч окончен: «Реванш»                                                                                                                             |
+   | Статус готовности                                | `ready-status`        | я готов: «Ждём соперника…» (кнопка `disabled`); соперник готов, я нет: «Соперник готов»; иначе пусто                                                                             |
 
    Порядок рук: сначала место 0, потом 1 (как в табло). Сумма на кнопке/табло считается **не** на клиенте — только из `match` и `result`.
 
@@ -173,27 +173,46 @@ export type GameReadyPayload = Record<string, never>; // {} ; любой объ�
 
 ## 5. Протокол (Socket.IO)
 
-| Событие | Направление | Payload | Ответ / смысл |
-| --- | --- | --- | --- |
-| `game:ready` (новое) | C → S | `{}` | ack `{ ok: true }` или `{ ok: false, error }`: `INVALID_PAYLOAD`, `NOT_IN_ROOM`, `GAME_NOT_STARTED`, `ROUND_NOT_FINISHED`. Смысл: «Следующий раунд» (матч идёт) или «Реванш» (матч окончен). При изменении — `room:state` обоим |
-| `room:state` (изменено) | S → C | `RoomStatePayload` + `match: MatchView \| null`; `game.opponentHand: Tile[] \| null` | Рассылается также после начисления очков (внутри ответа на ход), после `game:ready` и при старте нового раунда/матча |
-| `game:move` | C → S | без изменений | в `finished` по-прежнему `ROUND_FINISHED` |
+| Событие                 | Направление | Payload                                                                              | Ответ / смысл                                                                                                                                                                                                                   |
+| ----------------------- | ----------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `game:ready` (новое)    | C → S       | `{}`                                                                                 | ack `{ ok: true }` или `{ ok: false, error }`: `INVALID_PAYLOAD`, `NOT_IN_ROOM`, `GAME_NOT_STARTED`, `ROUND_NOT_FINISHED`. Смысл: «Следующий раунд» (матч идёт) или «Реванш» (матч окончен). При изменении — `room:state` обоим |
+| `room:state` (изменено) | S → C       | `RoomStatePayload` + `match: MatchView \| null`; `game.opponentHand: Tile[] \| null` | Рассылается также после начисления очков (внутри ответа на ход), после `game:ready` и при старте нового раунда/матча                                                                                                            |
+| `game:move`             | C → S       | без изменений                                                                        | в `finished` по-прежнему `ROUND_FINISHED`                                                                                                                                                                                       |
 
 Пример `room:state` у места 0 после выигрыша раунда местом 1 (домино):
 
 ```json
 {
-  "roomId": "ABC234", "you": 0, "phase": "finished",
-  "players": [{ "seat": 0, "name": "Аня", "connected": true }, { "seat": 1, "name": "Боб", "connected": true }],
+  "roomId": "ABC234",
+  "you": 0,
+  "phase": "finished",
+  "players": [
+    { "seat": 0, "name": "Аня", "connected": true },
+    { "seat": 1, "name": "Боб", "connected": true }
+  ],
   "game": {
-    "you": 0, "hand": [[2, 5], [6, 6]], "opponentHand": [], "opponentHandCount": 0,
-    "boneyardCount": 3, "board": ["…"], "currentPlayer": 1, "status": "finished",
+    "you": 0,
+    "hand": [
+      [2, 5],
+      [6, 6]
+    ],
+    "opponentHand": [],
+    "opponentHandCount": 0,
+    "boneyardCount": 3,
+    "board": ["…"],
+    "currentPlayer": 1,
+    "status": "finished",
     "result": { "reason": "domino", "winner": 1, "points": 19, "handPoints": [19, 0] },
     "legalMoves": []
   },
-  "match": { "target": 101, "scores": [0, 19], "roundNumber": 1,
-             "rounds": [{ "reason": "domino", "winner": 1, "points": 19, "handPoints": [19, 0] }],
-             "winner": null, "ready": [false, false] }
+  "match": {
+    "target": 101,
+    "scores": [0, 19],
+    "roundNumber": 1,
+    "rounds": [{ "reason": "domino", "winner": 1, "points": 19, "handPoints": [19, 0] }],
+    "winner": null,
+    "ready": [false, false]
+  }
 }
 ```
 
@@ -214,60 +233,60 @@ export type GameReadyPayload = Record<string, never>; // {} ; любой объ�
 
 ### 7.1 Unit — `shared/src/rules/match.test.ts` (имена `M*:`)
 
-| ID | Сценарий | Ожидание |
-| --- | --- | --- |
-| M1 | `createMatch()` | `{ target: 101, scores: [0,0], roundNumber: 1, rounds: [], winner: null }`; `createMatch(0)`/`createMatch(1.5)` → throw |
-| M2a | `recordRound` с `winner: 1, points: 19` | `scores [0,19]`, `rounds.length 1`, вход не изменён |
-| M2b | ничья `winner: null, points: 0` | счёт не изменился, раунд в истории |
-| M3a | счёт `[95, 0]`, раунд +6 за место 0 | `scores [101, 0]`, `winner 0` (ровно 101 — победа) |
-| M3b | счёт `[95, 0]`, +5 | `winner null` |
-| M3c | `recordRound` при `winner != null` | throw |
-| M4 | `nextRoundNumber` | `roundNumber + 1`, остальное без изменений |
-| V1 | `toPlayerView` в `playing` | `opponentHand === null` |
-| V2 | `toPlayerView` в `finished` | `opponentHand` равен `hands[соперник]` (в т.ч. `[]` у вышедшего) |
+| ID  | Сценарий                                | Ожидание                                                                                                                |
+| --- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| M1  | `createMatch()`                         | `{ target: 101, scores: [0,0], roundNumber: 1, rounds: [], winner: null }`; `createMatch(0)`/`createMatch(1.5)` → throw |
+| M2a | `recordRound` с `winner: 1, points: 19` | `scores [0,19]`, `rounds.length 1`, вход не изменён                                                                     |
+| M2b | ничья `winner: null, points: 0`         | счёт не изменился, раунд в истории                                                                                      |
+| M3a | счёт `[95, 0]`, раунд +6 за место 0     | `scores [101, 0]`, `winner 0` (ровно 101 — победа)                                                                      |
+| M3b | счёт `[95, 0]`, +5                      | `winner null`                                                                                                           |
+| M3c | `recordRound` при `winner != null`      | throw                                                                                                                   |
+| M4  | `nextRoundNumber`                       | `roundNumber + 1`, остальное без изменений                                                                              |
+| V1  | `toPlayerView` в `playing`              | `opponentHand === null`                                                                                                 |
+| V2  | `toPlayerView` в `finished`             | `opponentHand` равен `hands[соперник]` (в т.ч. `[]` у вышедшего)                                                        |
 
 ### 7.2 Server — `server/src/rooms/RoomManager.test.ts` (unit) и `server/src/match.test.ts` (сокеты, `useTestServer({ roundSeed: () => 42, matchTarget })`, имена `N*:`)
 
-| ID | Сценарий | Ожидание |
-| --- | --- | --- |
-| N1 | `room:join` | `room:state.match` = M1-состояние, `ready [false,false]`; в `waiting` у создателя `match: null` |
-| N2 | Доиграть раунд по `getLegalMoves` локальной копии (как G7) | последний `room:state`: `phase finished`, `match.scores[winner] === result.points`, `rounds.length 1`, `opponentHand` = локальная рука соперника |
-| N3 | `game:ready` во время раунда | `ROUND_NOT_FINISHED`, нет `room:state` |
-| N4 | `game:ready` до старта / вне комнаты / payload `null` | `GAME_NOT_STARTED` / `NOT_IN_ROOM` / `INVALID_PAYLOAD` |
-| N5 | Место 0 `ready` | ack ok; оба получают `room:state` с `ready [true,false]`, `phase finished` |
-| N6 | Место 0 `ready` повторно | ack ok, `expectNoState` у обоих |
-| N7 | Место 1 `ready` | оба получают `phase playing`, `roundNumber 2`, `ready [false,false]`, счёт сохранён, 7/7/14, `board []` |
-| N8 | `matchTarget: 1`, доиграть раунд с победителем | `match.winner === result.winner`; `ready` обоих → `scores [0,0]`, `roundNumber 1`, `rounds []`, `winner null`, `phase playing` |
-| N9 | Место 0 `ready`, место 0 отключилось и вернулось `room:rejoin` | `ready [true,false]` сохранён (M8); место 1 `ready` → новый раунд |
-| N10 | G8 (утечки) обновить | во время `playing` нет костей соперника; в `finished` разрешена только `game.opponentHand` (и `handPoints` — числа) |
-| N11 | Ничья по рыбе (готовая колода через `deck` в unit-тесте `RoomManager`, подставленная фабрикой раунда) | счёт не меняется, `rounds.length 1` |
+| ID  | Сценарий                                                                                              | Ожидание                                                                                                                                         |
+| --- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| N1  | `room:join`                                                                                           | `room:state.match` = M1-состояние, `ready [false,false]`; в `waiting` у создателя `match: null`                                                  |
+| N2  | Доиграть раунд по `getLegalMoves` локальной копии (как G7)                                            | последний `room:state`: `phase finished`, `match.scores[winner] === result.points`, `rounds.length 1`, `opponentHand` = локальная рука соперника |
+| N3  | `game:ready` во время раунда                                                                          | `ROUND_NOT_FINISHED`, нет `room:state`                                                                                                           |
+| N4  | `game:ready` до старта / вне комнаты / payload `null`                                                 | `GAME_NOT_STARTED` / `NOT_IN_ROOM` / `INVALID_PAYLOAD`                                                                                           |
+| N5  | Место 0 `ready`                                                                                       | ack ok; оба получают `room:state` с `ready [true,false]`, `phase finished`                                                                       |
+| N6  | Место 0 `ready` повторно                                                                              | ack ok, `expectNoState` у обоих                                                                                                                  |
+| N7  | Место 1 `ready`                                                                                       | оба получают `phase playing`, `roundNumber 2`, `ready [false,false]`, счёт сохранён, 7/7/14, `board []`                                          |
+| N8  | `matchTarget: 1`, доиграть раунд с победителем                                                        | `match.winner === result.winner`; `ready` обоих → `scores [0,0]`, `roundNumber 1`, `rounds []`, `winner null`, `phase playing`                   |
+| N9  | Место 0 `ready`, место 0 отключилось и вернулось `room:rejoin`                                        | `ready [true,false]` сохранён (M8); место 1 `ready` → новый раунд                                                                                |
+| N10 | G8 (утечки) обновить                                                                                  | во время `playing` нет костей соперника; в `finished` разрешена только `game.opponentHand` (и `handPoints` — числа)                              |
+| N11 | Ничья по рыбе (готовая колода через `deck` в unit-тесте `RoomManager`, подставленная фабрикой раунда) | счёт не меняется, `rounds.length 1`                                                                                                              |
 
 Для N11 допускается добавить в `RoomManagerOptions` необязательный `startRound?: () => RoundState` (по умолчанию `startRound({ seed: roundSeed() })`) — только для тестов.
 
 ### 7.3 Client — компонентные (`game/RoundSummary.test.tsx`, `game/GameTable.test.tsx`, фейковый сокет)
 
-| ID | Сценарий | Ожидание |
-| --- | --- | --- |
-| S1 | `playing` | `match-score` «Аня 0 : 0 Боб», нет `round-summary` |
-| S2 | `finished`, победил `you` по домино | `round-finished` «Вы выиграли раунд: +19 (домино)», обе руки в `summary-hand-0/1`, суммы, кнопка «Следующий раунд» активна, `turn-indicator` и `draw-button` отсутствуют |
-| S3 | победил соперник, рыба | «Раунд выиграл Боб: +7 (рыба)» |
-| S4 | ничья | «Рыба — ничья», `round-points` 0 |
-| S5 | клик `continue-button` | `emit('game:ready', {})` один раз; двойной клик — один emit |
-| S6 | `ready [true,false]` у `you=0` | кнопка disabled, «Ждём соперника…» |
-| S7 | `ready [false,true]` у `you=0` | кнопка активна, «Соперник готов» |
-| S8 | `match.winner = 0` | `match-finished` «Вы выиграли матч!», кнопка «Реванш» |
-| S9 | ack `{ ok:false, error:'ROUND_NOT_FINISHED' }` / таймаут | текст в `move-error` |
-| S10 | новый `room:state` с `playing` после итогов | итоги скрыты, стол интерактивен, `match-round` 2 |
-| S11 | `status !== 'connected'` | `continue-button` disabled |
+| ID  | Сценарий                                                 | Ожидание                                                                                                                                                                 |
+| --- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| S1  | `playing`                                                | `match-score` «Аня 0 : 0 Боб», нет `round-summary`                                                                                                                       |
+| S2  | `finished`, победил `you` по домино                      | `round-finished` «Вы выиграли раунд: +19 (домино)», обе руки в `summary-hand-0/1`, суммы, кнопка «Следующий раунд» активна, `turn-indicator` и `draw-button` отсутствуют |
+| S3  | победил соперник, рыба                                   | «Раунд выиграл Боб: +7 (рыба)»                                                                                                                                           |
+| S4  | ничья                                                    | «Рыба — ничья», `round-points` 0                                                                                                                                         |
+| S5  | клик `continue-button`                                   | `emit('game:ready', {})` один раз; двойной клик — один emit                                                                                                              |
+| S6  | `ready [true,false]` у `you=0`                           | кнопка disabled, «Ждём соперника…»                                                                                                                                       |
+| S7  | `ready [false,true]` у `you=0`                           | кнопка активна, «Соперник готов»                                                                                                                                         |
+| S8  | `match.winner = 0`                                       | `match-finished` «Вы выиграли матч!», кнопка «Реванш»                                                                                                                    |
+| S9  | ack `{ ok:false, error:'ROUND_NOT_FINISHED' }` / таймаут | текст в `move-error`                                                                                                                                                     |
+| S10 | новый `room:state` с `playing` после итогов              | итоги скрыты, стол интерактивен, `match-round` 2                                                                                                                         |
+| S11 | `status !== 'connected'`                                 | `continue-button` disabled                                                                                                                                               |
 
 ### 7.4 E2E — `e2e/match.spec.ts` (Playwright, две вкладки, timeout теста 120 с)
 
-| ID | Сценарий | Ожидание |
-| --- | --- | --- |
-| E12 | `startGame` → `playRoundToEnd` | на обеих вкладках `round-summary`; одинаковый `round-points`; `match-score` у обеих одинаков; сумма счёта = `round-points`; видны `summary-hand-0` и `summary-hand-1` |
+| ID  | Сценарий                            | Ожидание                                                                                                                                                                                                                                                                                                                                                   |
+| --- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E12 | `startGame` → `playRoundToEnd`      | на обеих вкладках `round-summary`; одинаковый `round-points`; `match-score` у обеих одинаков; сумма счёта = `round-points`; видны `summary-hand-0` и `summary-hand-1`                                                                                                                                                                                      |
 | E13 | после E12: A жмёт `continue-button` | у A «Ждём соперника…», у B «Соперник готов»; B жмёт → обе вкладки: `turn-indicator` виден, `boneyard-count` 14, `board-tile-*` нет, `match-round` 2, счёт сохранён. Если после первого раунда матч уже окончен (редко, ≥ 101 за раунд) — кнопка «Реванш», после неё счёт 0 : 0 и `match-round` 1 (обе ветки допустимы, тест проверяет по `match-finished`) |
-| E14 | экран итогов на 360×640 | нет горизонтальной прокрутки, `continue-button` видим |
-| E15 | F5 вкладки B на экране итогов | после восстановления — тот же `round-points` и счёт |
+| E14 | экран итогов на 360×640             | нет горизонтальной прокрутки, `continue-button` видим                                                                                                                                                                                                                                                                                                      |
+| E15 | F5 вкладки B на экране итогов       | после восстановления — тот же `round-points` и счёт                                                                                                                                                                                                                                                                                                        |
 
 E8–E11 продолжают проходить без изменений сценариев.
 

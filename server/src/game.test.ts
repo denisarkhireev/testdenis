@@ -47,11 +47,7 @@ function collectTiles(value: unknown, skip: string[], out: Tile[] = [], key = ''
  * Раздел 5 spec-4 / N10 spec-7: в payload игрока нет костей соперника/базара, seed, токенов,
  * RoundState. Исключение — после конца раунда рука соперника в `game.opponentHand` (M9).
  */
-function expectConfidential(
-  payload: RoomStatePayload,
-  truth: RoundState,
-  tokens: string[],
-): void {
+function expectConfidential(payload: RoomStatePayload, truth: RoundState, tokens: string[]): void {
   const you = payload.you;
   const finished = truth.status === 'finished';
   if (!finished) expect(payload.game?.opponentHand ?? null).toBeNull();
