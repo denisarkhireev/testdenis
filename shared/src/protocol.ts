@@ -6,7 +6,7 @@
  * - ошибки действий возвращаются только через ack (`{ ok: false, error }`);
  * - при несовместимом изменении контракта увеличивать `PROTOCOL_VERSION`.
  */
-import type { Move, MoveError, PlayerIndex, PlayerView } from './rules';
+import type { MatchState, Move, MoveError, PlayerIndex, PlayerView } from './rules';
 
 export const PROTOCOL_VERSION = 1;
 
@@ -33,6 +33,14 @@ export interface RoomStatePayload {
   players: RoomPlayer[];
   /** null в waiting; иначе toPlayerView(round, you). */
   game: PlayerView | null;
+  /** null в waiting; иначе состояние матча (spec-7 M1). */
+  match: MatchView | null;
+}
+
+/** Матч глазами игроков: счёт, история и готовность к следующему раунду/реваншу. */
+export interface MatchView extends MatchState {
+  /** Нажал ли игрок места i «Следующий раунд»/«Реванш» (M4–M6). Всегда [false,false] при playing. */
+  ready: [boolean, boolean];
 }
 
 export type RoomClosedReason = 'player_left' | 'replaced';
@@ -50,7 +58,12 @@ export type RoomErrorCode =
   | 'ALREADY_IN_ROOM'
   | 'INVALID_TOKEN';
 
-export type GameErrorCode = MoveError | 'INVALID_PAYLOAD' | 'NOT_IN_ROOM' | 'GAME_NOT_STARTED';
+export type GameErrorCode =
+  | MoveError
+  | 'INVALID_PAYLOAD'
+  | 'NOT_IN_ROOM'
+  | 'GAME_NOT_STARTED'
+  | 'ROUND_NOT_FINISHED';
 
 export type AckResult<T, E extends string> = ({ ok: true } & T) | { ok: false; error: E };
 
@@ -83,6 +96,9 @@ export interface GameMovePayload {
   move: Move;
 }
 
+/** «Следующий раунд» / «Реванш»: `{}`, лишние поля игнорируются. */
+export type GameReadyPayload = Record<string, never>;
+
 export interface ServerToClientEvents {
   'server:hello': (payload: ServerHelloPayload) => void;
   'room:state': (payload: RoomStatePayload) => void;
@@ -104,6 +120,10 @@ export interface ClientToServerEvents {
   ) => void;
   'game:move': (
     payload: GameMovePayload,
+    ack: (res: AckResult<object, GameErrorCode>) => void,
+  ) => void;
+  'game:ready': (
+    payload: GameReadyPayload,
     ack: (res: AckResult<object, GameErrorCode>) => void,
   ) => void;
 }

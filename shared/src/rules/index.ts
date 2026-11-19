@@ -20,3 +20,5 @@ export type { StartRoundOptions } from './round';
 export { handPoints } from './scoring';
 export { toPlayerView } from './view';
 export type { PlayerView } from './view';
+export { MATCH_TARGET, createMatch, nextRoundNumber, recordRound } from './match';
+export type { MatchState } from './match';
