@@ -54,6 +54,10 @@ export interface Table {
   boneyard: number;
   board: number;
   myTurn: boolean;
+  /** Табло матча: место 0, место 1 (spec-7). */
+  scores: [number, number];
+  /** Показан экран итогов раунда (spec-7). */
+  summary: boolean;
 }
 
 /** То, что нарисовано на столе вкладки. */
@@ -67,6 +71,10 @@ export async function readTable(page: Page): Promise<Table> {
       boneyard: Number(document.querySelector('[data-testid="boneyard-count"]')?.textContent),
       board: count('[data-testid^="board-tile-"]'),
       myTurn: indicator?.getAttribute('data-my-turn') === 'true',
+      scores: [0, 1].map((seat) =>
+        Number(document.querySelector(`[data-testid="match-score-${seat}"]`)?.textContent),
+      ) as [number, number],
+      summary: count('[data-testid="round-summary"]') > 0,
     };
   });
 }
@@ -110,8 +118,23 @@ function expectTotal(table: Table) {
 }
 
 /**
+ * Ждёт, пока вкладка нарисует ожидаемое (`toMatchObject`) — или экран итогов,
+ * если ход закончил раунд (руки тогда показываются только в `round-summary`).
+ */
+async function expectSettled(page: Page, expected: Partial<Table>): Promise<void> {
+  await expect
+    .poll(async () => {
+      const table = await readTable(page);
+      if (table.summary) return true;
+      return Object.entries(expected).every(([key, value]) => table[key as keyof Table] === value);
+    }, TIMEOUT)
+    .toBe(true);
+}
+
+/**
  * Один ход ходящей вкладки с проверкой инвариантов на обеих вкладках (E8).
- * Ждёт, пока обе вкладки нарисуют результат хода.
+ * Ждёт, пока обе вкладки нарисуют результат хода. Если ход закончил раунд —
+ * ждёт `round-summary` на обеих, инварианты стола не проверяются (spec-7 §4.4).
  */
 export async function playStep(a: Page, b: Page): Promise<MoveKind> {
   const { mover, other } = await currentMover(a, b);
@@ -119,35 +142,28 @@ export async function playStep(a: Page, b: Page): Promise<MoveKind> {
   const kind = await makeMove(mover);
 
   if (kind === 'play') {
-    await expect
-      .poll(() => readTable(mover), TIMEOUT)
-      .toMatchObject({
-        board: before.board + 1,
-        hand: before.hand - 1,
-      });
-    await expect
-      .poll(() => readTable(other), TIMEOUT)
-      .toMatchObject({
-        board: before.board + 1,
-        opp: before.hand - 1,
-      });
+    await expectSettled(mover, { board: before.board + 1, hand: before.hand - 1 });
+    await expectSettled(other, { board: before.board + 1, opp: before.hand - 1 });
   } else if (kind === 'draw') {
-    await expect
-      .poll(() => readTable(mover), TIMEOUT)
-      .toMatchObject({
-        hand: before.hand + 1,
-        boneyard: before.boneyard - 1,
-        myTurn: true,
-      });
-    await expect
-      .poll(() => readTable(other), TIMEOUT)
-      .toMatchObject({
-        opp: before.hand + 1,
-        boneyard: before.boneyard - 1,
-        myTurn: false,
-      });
+    await expectSettled(mover, {
+      hand: before.hand + 1,
+      boneyard: before.boneyard - 1,
+      myTurn: true,
+    });
+    await expectSettled(other, {
+      opp: before.hand + 1,
+      boneyard: before.boneyard - 1,
+      myTurn: false,
+    });
   } else {
-    await expect.poll(async () => (await readTable(other)).myTurn, TIMEOUT).toBe(true);
+    await expectSettled(other, { myTurn: true });
+  }
+
+  if ((await readTable(mover)).summary || (await readTable(other)).summary) {
+    for (const page of [mover, other]) {
+      await expect(page.getByTestId('round-summary')).toBeVisible(TIMEOUT);
+    }
+    return kind;
   }
 
   const [tm, to] = [await readTable(mover), await readTable(other)];
@@ -157,10 +173,20 @@ export async function playStep(a: Page, b: Page): Promise<MoveKind> {
   expect(to.opp).toBe(tm.hand);
   expect(tm.board).toBe(to.board);
   expect(tm.boneyard).toBe(to.boneyard);
-  if (kind === 'play' && (await mover.getByTestId('turn-indicator').count()) > 0) {
-    // ход перешёл (если раунд не закончился этим ходом)
+  if (kind === 'play') {
+    // ход перешёл
     expect(tm.myTurn).toBe(false);
     expect(to.myTurn).toBe(true);
   }
   return kind;
+}
+
+/** spec-7: `playStep`, пока на обеих вкладках не появится `round-summary`. */
+export async function playRoundToEnd(a: Page, b: Page, maxSteps = 200): Promise<number> {
+  for (let steps = 0; steps < maxSteps; steps++) {
+    const [ta, tb] = [await readTable(a), await readTable(b)];
+    if (ta.summary && tb.summary) return steps;
+    await playStep(a, b);
+  }
+  throw new Error(`round did not finish in ${maxSteps} steps`);
 }
