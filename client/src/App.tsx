@@ -15,13 +15,13 @@ export interface AppProps {
 
 export function App({ socket: socketProp }: AppProps) {
   const [socket] = useState<ClientSocket>(() => socketProp ?? createSocket());
-  const status = useConnectionStatus(socket);
+  const { status, publicUrl } = useConnectionStatus(socket);
 
   return (
     <main>
       <h1>Domino</h1>
       <p data-testid="connection-status">{STATUS_TEXT[status]}</p>
-      <Lobby socket={socket} status={status} />
+      <Lobby socket={socket} status={status} publicUrl={publicUrl} />
     </main>
   );
 }
