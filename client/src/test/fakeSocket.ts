@@ -23,6 +23,8 @@ export function createFakeSocket() {
     }),
     timeout: vi.fn((ms: number) => ({ ms, emitWithAck })),
     active: false,
+    /** Менеджер socket.io: `engine.close()` рвёт транспорт (RC15). */
+    io: { engine: { close: vi.fn() } },
     connect: vi.fn(() => {
       fake.active = true;
       return fake;

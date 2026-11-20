@@ -22,15 +22,28 @@ type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServer
 type EventName = keyof ClientToServerEvents;
 type AckOf<E extends EventName> = Parameters<ClientToServerEvents[E]>[1];
 
-/** Вид комнаты для игрока `you` (K11): своя рука, у соперника — только количество. */
-export function toRoomState(room: Room, you: PlayerIndex): RoomStatePayload {
+/**
+ * Вид комнаты для игрока `you` (K11): своя рука, у соперника — только количество.
+ * RC8: у отключённого места — остаток ожидания на момент `now`.
+ */
+export function toRoomState(
+  room: Room,
+  you: PlayerIndex,
+  now: number = Date.now(),
+): RoomStatePayload {
   return {
     roomId: room.id,
     you,
     phase: roomPhase(room),
     players: ([0, 1] as const).flatMap((seat) => {
       const state = room.seats[seat];
-      return state ? [{ seat, name: state.name, connected: state.socketId !== null }] : [];
+      if (!state) return [];
+      const connected = state.socketId !== null;
+      const reconnectRemainingMs =
+        !connected && state.reconnectDeadline !== null
+          ? Math.max(0, state.reconnectDeadline - now)
+          : null;
+      return [{ seat, name: state.name, connected, reconnectRemainingMs }];
     }),
     game: room.round ? toPlayerView(room.round, you) : null,
     match: room.match ? { ...room.match, ready: [room.ready[0], room.ready[1]] } : null,
@@ -62,6 +75,19 @@ export function notifyRoomClosed(io: GameServer, room: Room, reason: RoomClosedR
     if (!socket) continue;
     socket.emit('room:closed', { roomId: room.id, reason });
     detach(socket);
+  }
+}
+
+/**
+ * Обработчик onForfeit для RoomManager (RC5): оставшемуся — финальный room:state с техпоражением,
+ * затем его сокет отвязывается. Без room:closed.
+ */
+export function notifyForfeit(io: GameServer, room: Room, loser: PlayerIndex): void {
+  console.info(`room ${room.id} forfeit (seat ${loser})`);
+  broadcastState(io, room);
+  for (const state of room.seats) {
+    const socket = socketById(io, state?.socketId ?? null);
+    if (socket) detach(socket);
   }
 }
 

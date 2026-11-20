@@ -25,6 +25,17 @@
   color: #8a5300;
 }
 
+.opponent-offline [data-testid='opponent-countdown'] {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.forfeit-result {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
 .game-table {
   display: flex;
   flex-direction: column;
@@ -312,4 +323,11 @@
   .hand {
     gap: 4px;
   }
+}
+
+/* spec-10 AN1: подсказка композитору только на время полёта (класс снимается в onfinish). */
+.is-flying {
+  will-change: transform, opacity;
+  position: relative;
+  z-index: 1;
 }

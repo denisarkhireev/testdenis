@@ -1,6 +1,7 @@
 import {
   applyMove,
   createMatch,
+  forfeitMatch,
   nextRoundNumber,
   recordRound,
   startRound,
@@ -22,7 +23,10 @@ export interface SeatState {
   token: string;
   /** null — место отключено и ждёт room:rejoin (K8). */
   socketId: string | null;
-  graceTimer: NodeJS.Timeout | null;
+  /** Таймер RECONNECT_TIMEOUT отключённого места (RC1). */
+  reconnectTimer: NodeJS.Timeout | null;
+  /** RC1, RC8: момент (по `now()`), когда истекает ожидание; null — место подключено. */
+  reconnectDeadline: number | null;
 }
 
 export interface Room {
@@ -38,17 +42,24 @@ export interface Room {
 
 export interface RoomManagerOptions {
   roundSeed: () => number;
-  reconnectGraceMs: number;
+  /** RC2: сколько ждать возвращения отключившегося игрока, мс. */
+  reconnectTimeoutMs: number;
+  /** Часы для дедлайнов (RC8). По умолчанию Date.now; тесты подставляют фейковые. */
+  now?: () => number;
   /** Цель матча (spec-7 M1), по умолчанию MATCH_TARGET. */
   matchTarget?: number;
   /** Фабрика раунда — только для тестов (N11). По умолчанию startRound({ seed: roundSeed() }). */
   startRound?: () => RoundState;
   /** Вызывается, когда комната закрыта и уже удалена из менеджера. */
   onClose: (room: Room, reason: RoomClosedReason) => void;
+  /** RC5: техническое поражение места `loser`; вызывается, когда комната уже удалена из менеджера. */
+  onForfeit: (room: Room, loser: PlayerIndex) => void;
 }
 
 export function roomPhase(room: Room): RoomPhase {
   if (room.round === null) return 'waiting';
+  // RC7: техпоражение — матч окончен независимо от статуса раунда.
+  if (room.match?.forfeit != null) return 'finished';
   return room.round.status === 'finished' ? 'finished' : 'playing';
 }
 
@@ -76,7 +87,7 @@ export class RoomManager {
     const token = generateToken();
     const room: Room = {
       id,
-      seats: [{ name, token, socketId, graceTimer: null }, null],
+      seats: [{ name, token, socketId, reconnectTimer: null, reconnectDeadline: null }, null],
       round: null,
       match: null,
       ready: [false, false],
@@ -94,7 +105,7 @@ export class RoomManager {
     if (!room) return err('ROOM_NOT_FOUND');
     if (room.seats[1] !== null) return err('ROOM_FULL');
     const token = generateToken();
-    room.seats[1] = { name, token, socketId, graceTimer: null };
+    room.seats[1] = { name, token, socketId, reconnectTimer: null, reconnectDeadline: null };
     // K4: waiting → playing синхронно при успешном входе; M1: вместе с первым раундом — матч.
     room.match = createMatch(this.opts.matchTarget);
     room.ready = [false, false];
@@ -113,6 +124,7 @@ export class RoomManager {
     if (seat === undefined) return err('INVALID_TOKEN');
     const state = room.seats[seat]!;
     this.clearTimer(state);
+    state.reconnectDeadline = null; // RC3
     const previous = state.socketId;
     state.socketId = socketId;
     return ok({
@@ -162,7 +174,7 @@ export class RoomManager {
   }
 
   /**
-   * Сокет места отключился: место держится reconnectGraceMs (K8), затем комната закрывается (K9).
+   * Сокет места отключился: место держится reconnectTimeoutMs (RC1), затем `expire` (RC4–RC6).
    * Возвращает null, если комнаты нет или socketId уже не текущий сокет места.
    */
   disconnect(roomId: string, seat: PlayerIndex, socketId: string): Room | null {
@@ -171,10 +183,11 @@ export class RoomManager {
     if (!room || !state || state.socketId !== socketId) return null;
     state.socketId = null;
     this.clearTimer(state);
-    state.graceTimer = setTimeout(() => {
-      state.graceTimer = null;
-      this.close(room, 'player_left');
-    }, this.opts.reconnectGraceMs);
+    state.reconnectDeadline = this.now() + this.opts.reconnectTimeoutMs;
+    state.reconnectTimer = setTimeout(() => {
+      state.reconnectTimer = null;
+      this.expire(room, seat);
+    }, this.opts.reconnectTimeoutMs);
     return room;
   }
 
@@ -190,6 +203,25 @@ export class RoomManager {
       : startRound({ seed: this.opts.roundSeed() });
   }
 
+  private now(): number {
+    return (this.opts.now ?? Date.now)();
+  }
+
+  /** Истёк таймаут места `loser`: RC4/RC6 — закрыть комнату, RC5 — техническое поражение. */
+  private expire(room: Room, loser: PlayerIndex): void {
+    if (this.rooms.get(room.id) !== room) return;
+    const opponent = room.seats[loser === 0 ? 1 : 0];
+    if (!opponent || !room.match || room.match.winner !== null || opponent.socketId === null) {
+      this.close(room, 'player_left');
+      return;
+    }
+    room.match = forfeitMatch(room.match, loser);
+    room.ready = [false, false];
+    this.clearTimers(room);
+    this.rooms.delete(room.id);
+    this.opts.onForfeit(room, loser);
+  }
+
   private close(room: Room, reason: RoomClosedReason): void {
     if (this.rooms.get(room.id) !== room) return;
     this.clearTimers(room);
@@ -202,7 +234,7 @@ export class RoomManager {
   }
 
   private clearTimer(state: SeatState): void {
-    if (state.graceTimer) clearTimeout(state.graceTimer);
-    state.graceTimer = null;
+    if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
   }
 }

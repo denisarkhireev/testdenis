@@ -53,7 +53,7 @@ async function finishedRoom(ctx: TestServer) {
 }
 
 describe('match over sockets', () => {
-  const ctx = useTestServer({ roundSeed: () => SEED, reconnectGraceMs: 300 });
+  const ctx = useTestServer({ roundSeed: () => SEED, reconnectTimeoutMs: 300 });
 
   it('N1: room:join starts a match 0:0; the creator has match null while waiting', async () => {
     const a = await ctx.connectClient();
@@ -180,7 +180,7 @@ describe('match over sockets', () => {
 });
 
 describe('match to a low target', () => {
-  const ctx = useTestServer({ roundSeed: () => SEED, reconnectGraceMs: 300, matchTarget: 1 });
+  const ctx = useTestServer({ roundSeed: () => SEED, reconnectTimeoutMs: 300, matchTarget: 1 });
 
   it('N8: reaching the target ends the match; both ready → rematch 0:0', async () => {
     const { a, b, finished, truth } = await finishedRoom(ctx);

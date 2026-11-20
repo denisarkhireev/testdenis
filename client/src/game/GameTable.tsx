@@ -1,6 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { MatchView, PlayerView, RoomStatePayload } from '@domino/shared';
+import { useReducedMotion } from '../fx/useReducedMotion';
+import { useTableEvents } from '../fx/useTableEvents';
+import { useTileFlights } from '../fx/useTileFlights';
 import type { ClientSocket } from '../socket';
+import { useSound } from '../sound/useSound';
 import type { ConnectionStatus } from '../useConnectionStatus';
 import { BoardView } from './BoardView';
 import { HandView } from './HandView';
@@ -10,6 +14,9 @@ import { MatchScore } from './MatchScore';
 import { RoundSummary } from './RoundSummary';
 import { useGameTable } from './useGameTable';
 import './game.css';
+
+/** spec-10 S2: «Ваш ход» и конец раунда — после стука/полёта. */
+export const DELAYED_SOUND_MS = 250;
 
 export interface GameTableProps {
   room: RoomStatePayload;
@@ -30,6 +37,38 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
   const canContinue =
     status === 'connected' && !table.pending && match !== null && !match.ready[game.you];
 
+  // spec-10: события стола → полёты костей и звуки.
+  const tableRef = useRef<HTMLDivElement>(null);
+  const events = useTableEvents(game);
+  const reducedMotion = useReducedMotion();
+  useTileFlights(tableRef, events, reducedMotion);
+  const { play } = useSound();
+
+  // Отложенные звуки не отменяются следующим room:state — только размонтированием стола.
+  const timersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    for (const event of events) {
+      if (event.type === 'play') play('tile');
+      else if (event.type === 'draw') play('draw');
+      else {
+        const name = event.type === 'turn' ? 'turn' : 'roundEnd';
+        const timer = setTimeout(() => {
+          timersRef.current.delete(timer);
+          play(name);
+        }, DELAYED_SOUND_MS);
+        timersRef.current.add(timer);
+      }
+    }
+  }, [events, play]);
+
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      timers.forEach(clearTimeout);
+      timers.clear();
+    };
+  }, []);
+
   useEffect(() => {
     if (!selected) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -40,7 +79,7 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
   }, [selected, cancel]);
 
   return (
-    <div className="game-table">
+    <div className="game-table" ref={tableRef}>
       {match && <MatchScore match={match} players={room.players} />}
 
       {!finished && (

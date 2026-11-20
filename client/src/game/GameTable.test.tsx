@@ -5,6 +5,8 @@ import { App } from '../App';
 import { TIMEOUT_TEXT } from '../lobby/errors';
 import { createFakeSocket, deferred, hello, type FakeSocket } from '../test/fakeSocket';
 import { makeRoom, makeView } from '../test/fixtures';
+import { fakeSoundPlayer } from '../test/fx';
+import { DELAYED_SOUND_MS } from './GameTable';
 
 const byId = (id: string) => screen.getByTestId(id);
 const queryById = (id: string) => screen.queryByTestId(id);
@@ -59,7 +61,6 @@ function moveCalls(fake: FakeSocket) {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
-  sessionStorage.clear();
   localStorage.clear();
 });
 
@@ -262,12 +263,12 @@ describe('GameTable', () => {
     const { fake } = setup();
     const offline = makeRoom(makeView(), {
       players: [
-        { seat: 0, name: 'Аня', connected: true },
-        { seat: 1, name: 'Боб', connected: false },
+        { seat: 0, name: 'Аня', connected: true, reconnectRemainingMs: null },
+        { seat: 1, name: 'Боб', connected: false, reconnectRemainingMs: 120_000 },
       ],
     });
     fake.serverEmit('room:state', offline);
-    expect(byId('opponent-offline')).toHaveTextContent('Соперник отключился, ждём возвращения…');
+    expect(byId('opponent-offline')).toHaveTextContent('Соперник отключился, ждём… 02:00');
     expect(byId('board')).toBeInTheDocument();
     fake.serverEmit('room:state', makeRoom());
     expect(queryById('opponent-offline')).toBeNull();
@@ -280,7 +281,10 @@ describe('GameTable', () => {
 
     const first = setup(twoEndsView());
     fireEvent.click(byId('hand-tile-3-5'));
-    const keydown = added.mock.calls.find(([type]) => type === 'keydown')?.[1];
+    // Escape-листенер стола — без опций (у разблокировки звука spec-10 S4 — `{ once, capture }`).
+    const keydown = added.mock.calls.find(
+      ([type, , options]) => type === 'keydown' && options === undefined,
+    )?.[1];
     expect(keydown).toBeDefined();
     first.unmount();
     expect(removed).toHaveBeenCalledWith('keydown', keydown);
@@ -292,5 +296,86 @@ describe('GameTable', () => {
     second.unmount();
     await act(async () => ack.resolve({ ok: false, error: 'NOT_YOUR_TURN' }));
     expect(errors).not.toHaveBeenCalled();
+  });
+});
+
+describe('GameTable sounds (spec-10 S2)', () => {
+  /** Середина раунда, ход соперника. */
+  const waiting = makeView({
+    hand: [
+      [1, 2],
+      [0, 3],
+    ],
+    opponentHandCount: 5,
+    boneyardCount: 10,
+    board: [{ tile: [6, 6], left: 6, right: 6 }],
+    currentPlayer: 1,
+    legalMoves: [],
+  });
+
+  function soundSetup(view: PlayerView) {
+    vi.useFakeTimers();
+    const { fake, socket } = createFakeSocket();
+    const sound = fakeSoundPlayer();
+    render(<App socket={socket} soundPlayer={sound} />);
+    fake.serverEmit('server:hello', hello());
+    fake.serverEmit('room:state', makeRoom(view));
+    return { fake, sound, state: (v: PlayerView) => fake.serverEmit('room:state', makeRoom(v)) };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('SN7: opponent move → tile now, turn after 250 ms', () => {
+    const { sound, state } = soundSetup(waiting);
+    state(
+      makeView({
+        ...waiting,
+        opponentHandCount: 4,
+        board: [...waiting.board, { tile: [6, 1], left: 6, right: 1 }],
+        currentPlayer: 0,
+        legalMoves: [{ type: 'play', tile: [1, 2], end: 'right' }],
+      }),
+    );
+    expect(sound.play.mock.calls).toEqual([['tile']]);
+    act(() => vi.advanceTimersByTime(DELAYED_SOUND_MS - 1));
+    expect(sound.play.mock.calls).toEqual([['tile']]);
+    act(() => vi.advanceTimersByTime(1));
+    expect(sound.play.mock.calls).toEqual([['tile'], ['turn']]);
+  });
+
+  it('SN7: my own draw → draw sound, no turn signal', () => {
+    const mine = makeView({ ...waiting, currentPlayer: 0, legalMoves: [{ type: 'draw' }] });
+    const { sound, state } = soundSetup(mine);
+    state(makeView({ ...mine, hand: [...mine.hand, [4, 4]], boneyardCount: 9 }));
+    act(() => vi.advanceTimersByTime(1000));
+    expect(sound.play.mock.calls).toEqual([['draw']]);
+  });
+
+  it('SN7: round end → roundEnd after 250 ms, once', () => {
+    const mine = makeView({ ...waiting, hand: [[1, 6]], currentPlayer: 0 });
+    const { sound, state } = soundSetup(mine);
+    const finished = makeView({
+      ...mine,
+      hand: [],
+      board: [...mine.board, { tile: [6, 1], left: 6, right: 1 }],
+      status: 'finished',
+      result: { winner: 0, reason: 'domino', points: 10, handPoints: [0, 10] },
+      opponentHand: [],
+      legalMoves: [],
+    });
+    state(finished);
+    state({ ...finished });
+    act(() => vi.advanceTimersByTime(1000));
+    expect(sound.play.mock.calls).toEqual([['tile'], ['roundEnd']]);
+  });
+
+  it('SN7: pending delayed sound is cleared on unmount', () => {
+    const { sound, state } = soundSetup(waiting);
+    state(makeView({ ...waiting, currentPlayer: 0 }));
+    cleanup();
+    act(() => vi.advanceTimersByTime(1000));
+    expect(sound.play).not.toHaveBeenCalled();
   });
 });
