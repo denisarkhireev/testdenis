@@ -27,21 +27,23 @@ npm run dev
 7. Матч идёт до 101 очка: нажмите «Следующий раунд» — новый раунд начнётся, когда нажмут оба (у нажавшего — «Ждём соперника…», у другого — «Соперник готов»). Когда у кого-то ≥ 101, показывается победитель матча и кнопка «Реванш» — новый матч 0 : 0 в той же комнате. Для быстрой проверки конца матча запустите `MATCH_TARGET=20 npm run dev`.
 8. Обновление вкладки (F5) или короткий обрыв связи не выкидывают из комнаты: клиент сам возвращается на своё место по токену из `sessionStorage` вкладки.
 
-Ссылка с `localhost` работает только на этой машине (проверить «на себе» можно в двух вкладках). Для игры по сети откройте клиент по IP/имени хоста, доступному другу (например, `npm run dev -w @domino/client -- --host` и `http://<ваш-IP>:5173`), — ссылка строится из текущего адреса страницы. Спеки: лобби — [`docs/specs/spec-5.md`](docs/specs/spec-5.md), игровой стол — [`docs/specs/spec-6.md`](docs/specs/spec-6.md), итоги раунда и матч — [`docs/specs/spec-7.md`](docs/specs/spec-7.md).
+Ссылка с `localhost` работает только на этой машине (проверить «на себе» можно в двух вкладках). Для игры по сети откройте клиент по IP/имени хоста, доступному другу (например, `npm run dev -w @domino/client -- --host` и `http://<ваш-IP>:5173`), — ссылка строится из текущего адреса страницы. В проде (см. «Деплой») ссылка-приглашение строится от `PUBLIC_URL` сервера, например `https://domino-testdenis.fly.dev/?room=ABC234`. Спеки: лобби — [`docs/specs/spec-5.md`](docs/specs/spec-5.md), игровой стол — [`docs/specs/spec-6.md`](docs/specs/spec-6.md), итоги раунда и матч — [`docs/specs/spec-7.md`](docs/specs/spec-7.md), деплой — [`docs/specs/spec-8.md`](docs/specs/spec-8.md).
 
 ## Команды
 
-| Команда              | Что делает                                                                          |
-| -------------------- | ----------------------------------------------------------------------------------- |
-| `npm run dev`        | сервер (`:3001`) и клиент (`:5173`) вместе, логи с префиксами `[server]`/`[client]` |
-| `npm run build`      | сборка сервера (`server/dist`) и клиента (`client/dist`)                            |
-| `npm start`          | запуск собранного сервера (`node server/dist/index.js`)                             |
-| `npm test`           | все unit- и интеграционные тесты (Vitest, проекты `shared`, `server`, `client`)     |
-| `npm run test:watch` | Vitest в watch-режиме                                                               |
-| `npm run test:e2e`   | e2e-тесты (Playwright, Chromium); сам поднимает `npm run dev`                       |
-| `npm run lint`       | ESLint (0 предупреждений) + `prettier --check`                                      |
-| `npm run format`     | автоформатирование Prettier                                                         |
-| `npm run typecheck`  | `tsc --noEmit` во всех пакетах                                                      |
+| Команда                | Что делает                                                                          |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| `npm run dev`          | сервер (`:3001`) и клиент (`:5173`) вместе, логи с префиксами `[server]`/`[client]` |
+| `npm run build`        | сборка сервера (`server/dist`) и клиента (`client/dist`)                            |
+| `npm start`            | запуск собранного сервера (`node server/dist/index.js`)                             |
+| `npm test`             | все unit- и интеграционные тесты (Vitest, проекты `shared`, `server`, `client`)     |
+| `npm run test:watch`   | Vitest в watch-режиме                                                               |
+| `npm run test:e2e`     | e2e-тесты (Playwright, Chromium); сам поднимает `npm run dev`                       |
+| `npm run lint`         | ESLint (0 предупреждений) + `prettier --check`                                      |
+| `npm run format`       | автоформатирование Prettier                                                         |
+| `npm run docker:build` | production-образ `domino` (нужен Docker)                                            |
+| `npm run docker:run`   | контейнер на <http://localhost:8080> с `PUBLIC_URL=http://localhost:8080`           |
+| `npm run typecheck`    | `tsc --noEmit` во всех пакетах                                                      |
 
 Перед первым запуском e2e установите браузер:
 
@@ -54,6 +56,7 @@ npx playwright install chromium
 - `shared/` (`@domino/shared`) — общие типы и правила раунда (`shared/src/rules`). Без шага сборки: пакеты импортируют исходники.
 - `server/` (`@domino/server`) — HTTP + Socket.IO сервер; проверяет каждое действие игрока.
 - `client/` (`@domino/client`) — React-приложение; только отображает состояние и отправляет намерения. Лобби (экраны, ссылка-приглашение, авто-возврат в комнату) — `client/src/lobby`; игровой стол — `client/src/game` (подсветка и кнопки берутся только из `legalMoves`, которые прислал сервер).
+- `Dockerfile`, `.dockerignore`, `fly.toml` — production-образ и конфиг Fly.io; раздачу статики делает `server/src/static.ts`, env читает `server/src/config.ts`.
 - `e2e/` — сценарии Playwright (`connect.spec.ts` — E1–E2, `lobby.spec.ts` — E3–E7: две вкладки встречаются в одной комнате, `game.spec.ts` — E8–E11: две вкладки делают ходы, мобильная ширина, F5, `match.spec.ts` — E12–E15: раунд до конца, итоги, следующий раунд; общие хелперы — `helpers.ts`).
 
 Сервер — источник истины. Контракт событий Socket.IO описан в одном месте — `shared/src/protocol.ts` — и типизирует обе стороны: переименование события ломает `typecheck` и на сервере, и на клиенте.
@@ -94,24 +97,59 @@ toPlayerView(state, 0); // то, что можно показать игроку
 
 ## Переменные окружения сервера
 
-| Переменная           | По умолчанию            | Назначение                                      |
-| -------------------- | ----------------------- | ----------------------------------------------- |
-| `PORT`               | `3001`                  | порт сервера                                    |
-| `HOST`               | `0.0.0.0`               | интерфейс                                       |
-| `CORS_ORIGIN`        | `http://localhost:5173` | разрешённый origin клиента                      |
-| `RECONNECT_GRACE_MS` | `60000`                 | сколько держать место отключившегося игрока, мс |
-| `MATCH_TARGET`       | `101`                   | до скольких очков идёт матч (целое > 0)         |
+| Переменная           | По умолчанию            | Назначение                                                                                                                    |
+| -------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`               | `3001`                  | порт сервера                                                                                                                  |
+| `HOST`               | `0.0.0.0`               | интерфейс                                                                                                                     |
+| `CORS_ORIGIN`        | `http://localhost:5173` | разрешённый origin клиента                                                                                                    |
+| `RECONNECT_GRACE_MS` | `60000`                 | сколько держать место отключившегося игрока, мс                                                                               |
+| `MATCH_TARGET`       | `101`                   | до скольких очков идёт матч (целое > 0)                                                                                       |
+| `PUBLIC_URL`         | —                       | база ссылок-приглашений, напр. `https://domino-testdenis.fly.dev` (http/https, без пути); не задан — клиент берёт свой origin |
+| `STATIC_DIR`         | —                       | каталог собранного клиента (в образе `/app/client/dist`); задан — сервер раздаёт клиент на своём порту                        |
 
-Проверка здоровья: `curl -s localhost:3001/health` → `{"status":"ok"}`.
+Невалидные `MATCH_TARGET` / `PUBLIC_URL` / `STATIC_DIR` (каталог без `index.html`) — процесс падает на старте с понятной ошибкой.
+
+Проверка здоровья: `curl -s localhost:3001/healthz` → `{"status":"ok"}` (старый `/health` тоже работает).
+
+## Запуск в Docker
+
+Production-образ (`Dockerfile`, multi-stage, `node:22-alpine`): один процесс Node.js раздаёт собранный клиент и Socket.IO на одном порту `8080` — CORS не нужен. В образе только prod-зависимости сервера, процесс работает от пользователя `node`.
+
+```bash
+npm run docker:build   # docker build -t domino .
+npm run docker:run     # docker run --rm -p 8080:8080 -e PUBLIC_URL=http://localhost:8080 domino
+```
+
+Откройте <http://localhost:8080> в двух вкладках и сыграйте партию, как описано выше. Другие настройки — через `-e`, например `docker run --rm -p 8080:8080 -e MATCH_TARGET=20 domino`. Статус healthcheck: `docker inspect --format '{{.State.Health.Status}}' <container>`.
+
+Без Docker то же самое: `npm run build && STATIC_DIR=client/dist PORT=8080 npm start`.
+
+## Деплой
+
+Хостинг — [Fly.io](https://fly.io), конфиг — `fly.toml`: одна машина в регионе `fra`, WebSocket работает через `http_service` без доп. настроек, проверка здоровья — `GET /healthz`.
+
+Один раз:
+
+1. Установите [`flyctl`](https://fly.io/docs/flyctl/install/) и войдите: `fly auth login`.
+2. Создайте приложение: `fly apps create domino-testdenis`. Если имя занято — выберите своё и замените `app` и `PUBLIC_URL` в `fly.toml`.
+3. Первый деплой вручную: `fly deploy --ha=false` → игра доступна на `https://<app>.fly.dev`, ссылку-приглашение можно отправлять другу.
+4. Создайте токен: `fly tokens create deploy -x 999999h` и добавьте его в GitHub: Settings → Secrets and variables → Actions → New repository secret `FLY_API_TOKEN`.
+5. Дальше каждый push в `main` после зелёных `checks`, `e2e` и `docker` деплоится автоматически (job `deploy`). Без секрета job `deploy` завершается успешно с notice «Деплой пропущен» — CI не краснеет.
+
+Ограничения: комнаты живут в памяти одной машины. Деплой, рестарт или авто-остановка машины (`auto_stop_machines`, когда никто не подключён) обрывают текущие партии. Не запускайте больше одной машины (`fly scale count` > 1): игроки одной комнаты окажутся на разных инстансах. Логи — `fly logs`.
 
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) запускается на каждый pull request и на push в `main`:
 
 - `checks` — `npm ci`, `lint`, `typecheck`, `test`, `build`;
-- `e2e` — Playwright в Chromium (после `checks`); при падении отчёт сохраняется артефактом `playwright-report`.
+- `e2e` — Playwright в Chromium (после `checks`); при падении отчёт сохраняется артефактом `playwright-report`;
+- `docker` — сборка production-образа, запуск контейнера, проверка `/healthz`, пользователя `node` и отсутствия dev-зависимостей, e2e E1/E3/E4/E12 против контейнера (`E2E_BASE_URL=http://localhost:8080`);
+- `deploy` — только на push в `main`, после `checks`, `e2e`, `docker`: `flyctl deploy --remote-only --ha=false`. Без секрета `FLY_API_TOKEN` — success с notice «Деплой пропущен».
 
-Обе job'ы (`checks`, `e2e`) стоит сделать обязательными для merge в настройках branch protection.
+Job'ы `checks`, `e2e`, `docker` стоит сделать обязательными для merge в настройках branch protection.
+
+E2E против уже запущенного сервера (например, контейнера): `E2E_BASE_URL=http://localhost:8080 npm run test:e2e` — Playwright тогда не поднимает `npm run dev`.
 
 ## Спецификации
 

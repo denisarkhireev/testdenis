@@ -366,3 +366,33 @@ describe('Lobby', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe('Lobby invite link base (spec-8)', () => {
+  async function createRoomAfterHello(fake: FakeSocket) {
+    typeName('Аня');
+    fake.emitWithAck.mockResolvedValueOnce({
+      ok: true,
+      roomId: 'ABC234',
+      seat: 0,
+      playerToken: 't',
+    });
+    fireEvent.click(byId('create-button'));
+    await flush();
+    fake.serverEmit('room:state', roomState());
+  }
+
+  it('C9: invite link is built from publicUrl sent in server:hello', async () => {
+    const { fake } = setup();
+    fake.serverEmit('server:hello', { ...hello(), publicUrl: 'https://a.fly.dev' });
+    await createRoomAfterHello(fake);
+    expect(byId('invite-link')).toHaveValue('https://a.fly.dev/?room=ABC234');
+  });
+
+  it('C10: without publicUrl the invite link uses window.location.origin', async () => {
+    const { fake } = setup();
+    fake.serverEmit('server:hello', hello());
+    await createRoomAfterHello(fake);
+    expect(window.location.origin).toBe('http://localhost:3000');
+    expect(byId('invite-link')).toHaveValue('http://localhost:3000/?room=ABC234');
+  });
+});

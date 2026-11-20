@@ -4,13 +4,21 @@ import type { ClientSocket } from './socket';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
-export function useConnectionStatus(socket: ClientSocket): ConnectionStatus {
+export interface ConnectionInfo {
+  status: ConnectionStatus;
+  /** spec-8 D9: публичный origin из последнего `server:hello` (если сервер его прислал). */
+  publicUrl: string | undefined;
+}
+
+export function useConnectionStatus(socket: ClientSocket): ConnectionInfo {
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
+  const [publicUrl, setPublicUrl] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     const onHello = (payload: ServerHelloPayload) => {
       if (payload.protocolVersion === PROTOCOL_VERSION) {
         setStatus('connected');
+        setPublicUrl(payload.publicUrl || undefined);
       } else {
         console.error('Protocol version mismatch');
         setStatus('disconnected');
@@ -29,5 +37,5 @@ export function useConnectionStatus(socket: ClientSocket): ConnectionStatus {
     };
   }, [socket]);
 
-  return status;
+  return { status, publicUrl };
 }

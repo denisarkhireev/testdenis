@@ -14,6 +14,8 @@ export interface ServerHelloPayload {
   protocolVersion: number;
   /** ISO-8601 */
   serverTime: string;
+  /** spec-8 D9: публичный origin для ссылок-приглашений (`PUBLIC_URL`), без завершающего `/`. Нет — клиент берёт свой origin. */
+  publicUrl?: string;
 }
 
 export type RoomPhase = 'waiting' | 'playing' | 'finished';
