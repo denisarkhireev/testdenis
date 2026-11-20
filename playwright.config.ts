@@ -21,5 +21,8 @@ export default defineConfig({
         url: 'http://localhost:5173',
         reuseExistingServer: !process.env.CI,
         timeout: 60_000,
+        // spec-9: укороченный таймаут возвращения для X17. Уже запущенный локально
+        // `npm run dev` (reuseExistingServer) должен быть поднят с тем же значением.
+        env: { ...process.env, RECONNECT_TIMEOUT: '8000' },
       },
 });
