@@ -14,8 +14,10 @@ test('E3: two tabs meet in one room via the invite link', async ({ context }) =>
   await expect(b.getByTestId('player-name-0')).toHaveText('Аня');
 });
 
-test('E4: "Copy" puts the invite link into the clipboard', async ({ page }) => {
+test('E4: "Copy" puts the invite link into the clipboard', async ({ page, baseURL }) => {
   const link = await createGame(page, 'Аня');
+  // spec-8: dev — origin страницы, контейнер — PUBLIC_URL (в CI совпадает с E2E_BASE_URL).
+  expect(link.startsWith(`${new URL(baseURL!).origin}/`)).toBe(true);
   await page.getByTestId('copy-button').click();
   await expect(page.getByTestId('copy-status')).toHaveText('Ссылка скопирована', TIMEOUT);
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(link);
