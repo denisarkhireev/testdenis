@@ -11,7 +11,14 @@ import type { ConnectionStatus } from '../useConnectionStatus';
 import { REJOIN_FAILED_TEXT, ROOM_ERROR_TEXT, TIMEOUT_TEXT } from './errors';
 import { parseRoomIdFromSearch } from './invite';
 import { createRoom, joinRoom, rejoinRoom, type JoinResult } from './roomApi';
-import { clearSession, loadSession, saveName, saveSession, type Session } from './storage';
+import {
+  clearSession,
+  dropLegacySession,
+  loadSession,
+  saveName,
+  saveSession,
+  type Session,
+} from './storage';
 
 export type Pending = 'create' | 'join' | 'rejoin';
 
@@ -57,14 +64,14 @@ const HOME_STATE: LobbyState = {
   badLink: false,
 };
 
-/** Начальное состояние по URL и sessionStorage (L10: сессия важнее ?room, но только для того же кода). */
+/**
+ * RC11: начальное состояние по URL и localStorage. Есть токен для `?room=X` этого браузера —
+ * возвращаемся на своё место (restoring → rejoin на hello); нет — экран входа. Без `?room` — главная.
+ */
 function initLobbyState(): LobbyState {
+  dropLegacySession();
   const urlRoom = parseRoomIdFromSearch(window.location.search);
-  let session = loadSession();
-  if (session && urlRoom !== null && session.roomId !== urlRoom) {
-    clearSession();
-    session = null;
-  }
+  const session = urlRoom !== null && urlRoom !== 'invalid' ? loadSession(urlRoom) : null;
   return { ...HOME_STATE, urlRoom, session };
 }
 
@@ -82,6 +89,11 @@ export function useLobby(socket: ClientSocket, status: ConnectionStatus): Lobby 
   const pendingRef = useRef<Pending | null>(null);
   const rejoinSeqRef = useRef(0);
   const mountedRef = useRef(true);
+  // Актуальное состояние для goHome (обработчик клика).
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -90,18 +102,24 @@ export function useLobby(socket: ClientSocket, status: ConnectionStatus): Lobby 
     };
   }, []);
 
-  const dropSession = useCallback(() => {
-    clearSession();
+  const dropSession = useCallback((roomId: string) => {
+    clearSession(roomId);
     sessionRef.current = null;
   }, []);
 
   useEffect(() => {
     const onState = (payload: RoomStatePayload) => {
+      // RC12: техпоражение — партия окончена навсегда, комнаты на сервере уже нет;
+      // переподключение не должно делать rejoin. Экран — по этому последнему room:state.
+      if (payload.match?.forfeit != null) dropSession(payload.roomId);
       setState((s) => ({ ...s, room: payload, closed: null }));
     };
 
     const onClosed = (payload: RoomClosedPayload) => {
-      dropSession();
+      // RC12/RC13: при `replaced` токеном пользуется другая вкладка этого браузера — запись
+      // в localStorage остаётся, эта вкладка только забывает сессию и больше не делает rejoin.
+      if (payload.reason === 'replaced') sessionRef.current = null;
+      else dropSession(payload.roomId);
       rejoinSeqRef.current += 1;
       pendingRef.current = null;
       setState((s) => ({ ...s, session: null, room: null, closed: payload.reason, pending: null }));
@@ -122,7 +140,7 @@ export function useLobby(socket: ClientSocket, status: ConnectionStatus): Lobby 
         setState((s) => ({ ...s, pending: null }));
         return;
       }
-      dropSession();
+      dropSession(session.roomId);
       setState((s) => ({
         ...s,
         session: null,
@@ -193,7 +211,10 @@ export function useLobby(socket: ClientSocket, status: ConnectionStatus): Lobby 
   );
 
   const goHome = useCallback(() => {
-    dropSession();
+    const current = stateRef.current;
+    const roomId = current.room?.roomId ?? current.session?.roomId ?? sessionRef.current?.roomId;
+    if (roomId !== undefined && current.closed !== 'replaced') dropSession(roomId);
+    sessionRef.current = null;
     rejoinSeqRef.current += 1;
     pendingRef.current = null;
     window.history.replaceState(null, '', '/');

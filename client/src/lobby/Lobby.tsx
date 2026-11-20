@@ -26,7 +26,7 @@ export function Lobby({ socket, status, publicUrl }: LobbyProps) {
     case 'closed':
       return <ClosedScreen reason={state.closed!} onHome={goHome} />;
     case 'game':
-      return <GameScreen room={state.room!} socket={socket} status={status} />;
+      return <GameScreen room={state.room!} socket={socket} status={status} onHome={goHome} />;
     case 'waiting':
       return (
         <WaitingScreen

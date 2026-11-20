@@ -2,7 +2,11 @@ import { useEffect, useState } from 'react';
 import { PROTOCOL_VERSION, type ServerHelloPayload } from '@domino/shared';
 import type { ClientSocket } from './socket';
 
-export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
+/**
+ * spec-9 RC14: `connecting` до первого hello → `connected` → при обрыве `reconnecting`
+ * (socket.io переподключается сам) или `disconnected` (ручной disconnect / не та версия протокола).
+ */
+export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 
 export interface ConnectionInfo {
   status: ConnectionStatus;
@@ -24,16 +28,21 @@ export function useConnectionStatus(socket: ClientSocket): ConnectionInfo {
         setStatus('disconnected');
       }
     };
-    const onDisconnect = () => setStatus('disconnected');
+    const onDisconnect = () => setStatus(socket.active ? 'reconnecting' : 'disconnected');
+    // RC15: браузер сообщил о пропаже сети — рвём транспорт сразу, не дожидаясь ping-таймаута;
+    // socket.io уйдёт в авто-переподключение. На `online` ничего не делаем: backoff уже идёт.
+    const onOffline = () => socket.io.engine?.close();
 
     socket.on('server:hello', onHello);
     socket.on('disconnect', onDisconnect);
+    window.addEventListener('offline', onOffline);
     // Эффект App выполняется после эффектов детей (useLobby), так что к этому моменту
     // все подписки на `server:hello` уже есть.
     if (!socket.active) socket.connect();
     return () => {
       socket.off('server:hello', onHello);
       socket.off('disconnect', onDisconnect);
+      window.removeEventListener('offline', onOffline);
     };
   }, [socket]);
 

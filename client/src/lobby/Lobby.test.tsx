@@ -3,8 +3,9 @@ import type { RoomPlayer, RoomStatePayload } from '@domino/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
 import { createFakeSocket, deferred, hello, type FakeSocket } from '../test/fakeSocket';
+import { makeMatch } from '../test/fixtures';
 
-const SESSION_KEY = 'domino:session';
+const SESSIONS_KEY = 'domino:sessions';
 
 const byId = (id: string) => screen.getByTestId(id);
 const queryById = (id: string) => screen.queryByTestId(id);
@@ -14,17 +15,22 @@ function roomState(patch: Partial<RoomStatePayload> = {}): RoomStatePayload {
     roomId: 'ABC234',
     you: 0,
     phase: 'waiting',
-    players: [{ seat: 0, name: 'Аня', connected: true }],
+    players: [{ seat: 0, name: 'Аня', connected: true, reconnectRemainingMs: null }],
     game: null,
     match: null,
     ...patch,
   };
 }
 
-function players(opponentConnected = true): RoomPlayer[] {
+function players(opponentConnected = true, remainingMs: number | null = null): RoomPlayer[] {
   return [
-    { seat: 0, name: 'Аня', connected: true },
-    { seat: 1, name: 'Боб', connected: opponentConnected },
+    { seat: 0, name: 'Аня', connected: true, reconnectRemainingMs: null },
+    {
+      seat: 1,
+      name: 'Боб',
+      connected: opponentConnected,
+      reconnectRemainingMs: opponentConnected ? null : remainingMs,
+    },
   ];
 }
 
@@ -32,9 +38,21 @@ function setUrl(url: string) {
   window.history.replaceState(null, '', url);
 }
 
-function storedSession() {
-  const raw = sessionStorage.getItem(SESSION_KEY);
-  return raw === null ? null : (JSON.parse(raw) as unknown);
+/** Запись `localStorage['domino:sessions'][roomId]` в виде `{ roomId, playerToken }` или null. */
+function storedSession(roomId = 'ABC234') {
+  const raw = localStorage.getItem(SESSIONS_KEY);
+  if (raw === null) return null;
+  const entry = (JSON.parse(raw) as Record<string, { playerToken: string } | undefined>)[roomId];
+  return entry ? { roomId, playerToken: entry.playerToken } : null;
+}
+
+function storeSession(roomId: string, playerToken: string) {
+  const raw = localStorage.getItem(SESSIONS_KEY);
+  const sessions = raw === null ? {} : (JSON.parse(raw) as object);
+  localStorage.setItem(
+    SESSIONS_KEY,
+    JSON.stringify({ ...sessions, [roomId]: { playerToken, savedAt: Date.now() } }),
+  );
 }
 
 function setup() {
@@ -242,11 +260,12 @@ describe('Lobby', () => {
     expect(window.location.search).toBe('');
   });
 
-  it('L-9: stored session → restoring, rejoin on hello, then the screen from room:state', async () => {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ roomId: 'ABC234', playerToken: 't' }));
+  it('L-9/C-X3: stored token for ?room → restoring, rejoin on hello, no join screen', async () => {
+    storeSession('ABC234', 't');
     setUrl('/?room=ABC234');
     const { fake } = setup();
     expect(byId('restoring-screen')).toBeInTheDocument();
+    expect(queryById('join-screen')).toBeNull();
 
     fake.emitWithAck.mockResolvedValueOnce({ ok: true, roomId: 'ABC234', seat: 0 });
     connect(fake);
@@ -261,8 +280,8 @@ describe('Lobby', () => {
     expect(storedSession()).toEqual({ roomId: 'ABC234', playerToken: 't' });
   });
 
-  it('L-10: rejoin → INVALID_TOKEN drops the session and shows join with an error', async () => {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ roomId: 'ABC234', playerToken: 't' }));
+  it('L-10/C-X6: rejoin → INVALID_TOKEN drops the session and shows join with an error', async () => {
+    storeSession('ABC234', 't');
     setUrl('/?room=ABC234');
     const { fake } = setup();
     fake.emitWithAck.mockResolvedValueOnce({ ok: false, error: 'INVALID_TOKEN' });
@@ -303,13 +322,33 @@ describe('Lobby', () => {
     expect(byId('game-screen')).toBeInTheDocument();
   });
 
-  it('L-12: session for another room is dropped, no rejoin, join screen', () => {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ roomId: 'AAAAAA', playerToken: 't' }));
+  it('C-X4: a token only for another room → join screen, no rejoin, that token is kept', () => {
+    storeSession('ZZZ222', 't');
     setUrl('/?room=ABC234');
     const { fake } = setup();
     connect(fake);
-    expect(storedSession()).toBeNull();
     expect(fake.emitWithAck).not.toHaveBeenCalled();
+    expect(byId('join-screen')).toBeInTheDocument();
+    expect(storedSession('ZZZ222')).toEqual({ roomId: 'ZZZ222', playerToken: 't' });
+  });
+
+  it('RC11: without ?room the home screen is shown and stored tokens are untouched', () => {
+    storeSession('ABC234', 't');
+    const { fake } = setup();
+    connect(fake);
+    expect(byId('home-screen')).toBeInTheDocument();
+    expect(fake.emitWithAck).not.toHaveBeenCalled();
+    expect(storedSession()).toEqual({ roomId: 'ABC234', playerToken: 't' });
+  });
+
+  it('C-X2: the legacy sessionStorage session is removed and never read', () => {
+    sessionStorage.setItem(
+      'domino:session',
+      JSON.stringify({ roomId: 'ABC234', playerToken: 't' }),
+    );
+    setUrl('/?room=ABC234');
+    setup();
+    expect(sessionStorage.getItem('domino:session')).toBeNull();
     expect(byId('join-screen')).toBeInTheDocument();
   });
 
@@ -322,19 +361,112 @@ describe('Lobby', () => {
     expect(queryById('opponent-offline')).toBeNull();
   });
 
-  it.each([
-    ['player_left', 'Соперник покинул игру'],
-    ['replaced', 'Игра открыта в другой вкладке'],
-  ])('L-14: room:closed %s → closed screen, session dropped, home', async (reason, text) => {
+  it('L-14/C-X6: room:closed player_left → closed screen, session dropped, home', async () => {
     const { fake } = setup();
     await createGame(fake);
     fake.serverEmit('room:state', roomState({ phase: 'playing', players: players() }));
-    fake.serverEmit('room:closed', { roomId: 'ABC234', reason });
-    expect(byId('closed-screen')).toHaveTextContent(text);
+    fake.serverEmit('room:closed', { roomId: 'ABC234', reason: 'player_left' });
+    expect(byId('closed-screen')).toHaveTextContent('Соперник покинул игру');
     expect(storedSession()).toBeNull();
     fireEvent.click(byId('home-button'));
     expect(byId('home-screen')).toBeInTheDocument();
     expect(window.location.search).toBe('');
+  });
+
+  it('L-14/C-X5: room:closed replaced → closed screen, the token stays for the other tab', async () => {
+    const { fake } = setup();
+    await createGame(fake);
+    fake.serverEmit('room:state', roomState({ phase: 'playing', players: players() }));
+    fake.serverEmit('room:closed', { roomId: 'ABC234', reason: 'replaced' });
+    expect(byId('closed-screen')).toHaveTextContent('Игра открыта в другой вкладке');
+    expect(storedSession()).toEqual({ roomId: 'ABC234', playerToken: 't' });
+
+    // RC13: переподключение этой вкладки не делает rejoin (нет пинг-понга)
+    fake.emitWithAck.mockClear();
+    connect(fake);
+    expect(fake.emitWithAck).not.toHaveBeenCalled();
+
+    fireEvent.click(byId('home-button'));
+    expect(byId('home-screen')).toBeInTheDocument();
+    expect(storedSession()).toEqual({ roomId: 'ABC234', playerToken: 't' });
+  });
+
+  it('goHome from the game drops the token of that room', async () => {
+    const { fake } = setup();
+    await createGame(fake);
+    storeSession('ZZZ222', 'other');
+    fake.serverEmit(
+      'room:state',
+      roomState({
+        phase: 'playing',
+        players: players(),
+        match: makeMatch({ forfeit: 1, winner: 0 }),
+      }),
+    );
+    fireEvent.click(byId('home-button'));
+    expect(storedSession()).toBeNull();
+    expect(storedSession('ZZZ222')).toEqual({ roomId: 'ZZZ222', playerToken: 'other' });
+  });
+
+  it('C-X7: room:state with a forfeit → victory summary, token dropped, no rejoin, home', async () => {
+    const { fake } = setup();
+    await createGame(fake);
+    fake.serverEmit(
+      'room:state',
+      roomState({
+        phase: 'finished',
+        players: players(false, 0),
+        match: makeMatch({ scores: [12, 30], winner: 0, forfeit: 1 }),
+      }),
+    );
+    expect(byId('forfeit-summary')).toBeInTheDocument();
+    expect(byId('forfeit-result')).toHaveTextContent('Победа! Соперник не вернулся в игру');
+    expect(byId('match-score-0')).toHaveTextContent('12');
+    expect(byId('match-score-1')).toHaveTextContent('30');
+    expect(queryById('opponent-offline')).toBeNull();
+    expect(queryById('continue-button')).toBeNull();
+    expect(storedSession()).toBeNull();
+
+    fake.emitWithAck.mockClear();
+    connect(fake);
+    expect(fake.emitWithAck).not.toHaveBeenCalled();
+
+    fireEvent.click(byId('home-button'));
+    expect(byId('home-screen')).toBeInTheDocument();
+    expect(window.location.search).toBe('');
+  });
+
+  it('forfeit of your own seat shows the defeat text', async () => {
+    const { fake } = setup();
+    await createGame(fake);
+    fake.serverEmit(
+      'room:state',
+      roomState({
+        phase: 'finished',
+        players: players(),
+        match: makeMatch({ winner: 1, forfeit: 0 }),
+      }),
+    );
+    expect(byId('forfeit-result')).toHaveTextContent('Поражение: время на возвращение истекло');
+  });
+
+  it('C-X8: opponent countdown ticks down and disappears when the opponent is back', async () => {
+    const { fake } = setup();
+    await createGame(fake);
+    vi.useFakeTimers();
+    fake.serverEmit('room:state', roomState({ phase: 'playing', players: players(false, 65_000) }));
+    expect(byId('opponent-offline')).toHaveTextContent('Соперник отключился, ждём… 01:05');
+    expect(byId('opponent-countdown')).toHaveTextContent('01:05');
+    act(() => vi.advanceTimersByTime(2000));
+    expect(byId('opponent-countdown')).toHaveTextContent('01:03');
+
+    // новый room:state пересчитывает дедлайн от присланного остатка
+    fake.serverEmit('room:state', roomState({ phase: 'playing', players: players(false, 30_000) }));
+    expect(byId('opponent-countdown')).toHaveTextContent('00:30');
+
+    fake.serverEmit('room:state', roomState({ phase: 'playing', players: players(true) }));
+    expect(queryById('opponent-offline')).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('L-15: ack timeout on create → form-error and the button is enabled again', async () => {

@@ -59,7 +59,6 @@ function moveCalls(fake: FakeSocket) {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
-  sessionStorage.clear();
   localStorage.clear();
 });
 
@@ -262,12 +261,12 @@ describe('GameTable', () => {
     const { fake } = setup();
     const offline = makeRoom(makeView(), {
       players: [
-        { seat: 0, name: 'Аня', connected: true },
-        { seat: 1, name: 'Боб', connected: false },
+        { seat: 0, name: 'Аня', connected: true, reconnectRemainingMs: null },
+        { seat: 1, name: 'Боб', connected: false, reconnectRemainingMs: 120_000 },
       ],
     });
     fake.serverEmit('room:state', offline);
-    expect(byId('opponent-offline')).toHaveTextContent('Соперник отключился, ждём возвращения…');
+    expect(byId('opponent-offline')).toHaveTextContent('Соперник отключился, ждём… 02:00');
     expect(byId('board')).toBeInTheDocument();
     fake.serverEmit('room:state', makeRoom());
     expect(queryById('opponent-offline')).toBeNull();
