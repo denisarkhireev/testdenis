@@ -86,6 +86,36 @@ describe('startServer', () => {
     await res.body?.cancel();
   });
 
+  it('I7: GET/HEAD /healthz returns 200 {status:"ok"}, query string is ignored', async () => {
+    for (const path of ['/healthz', '/healthz?x=1']) {
+      const res = await fetch(`${url()}${path}`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('application/json');
+      expect(await res.json()).toEqual({ status: 'ok' });
+    }
+    const head = await fetch(`${url()}/healthz`, { method: 'HEAD' });
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe('');
+  });
+
+  it('I9: server:hello has no publicUrl key when it is not configured', async () => {
+    const hello = await waitForHello(connectClient());
+    expect(hello).not.toHaveProperty('publicUrl');
+  });
+
+  it('I5b: without staticDir GET / is still 404 JSON', async () => {
+    const res = await fetch(`${url()}/`);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'Not Found' });
+  });
+
+  it('I8: server:hello carries publicUrl when configured', async () => {
+    await server!.close();
+    server = await startServer({ port: 0, host: '127.0.0.1', publicUrl: 'https://a.fly.dev' });
+    const hello = await waitForHello(connectClient());
+    expect(hello.publicUrl).toBe('https://a.fly.dev');
+  });
+
   it('I6: close() resolves and the port stops accepting connections', async () => {
     const port = server!.port;
     await expect(server!.close()).resolves.toBeUndefined();

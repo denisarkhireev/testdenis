@@ -4,16 +4,30 @@ import {
   createMatch,
   getLegalMoves,
   startRound,
+  type PlayerIndex,
   type RoomClosedReason,
   type RoundState,
 } from '@domino/shared';
-import { RoomManager, roomPhase, type Room } from './RoomManager';
+import { toRoomState } from './handlers';
+import { RoomManager, roomPhase, type Room, type RoomManagerOptions } from './RoomManager';
 
 const SEED = 42;
 const GRACE = 1000;
 
 let onClose: ReturnType<typeof vi.fn<(room: Room, reason: RoomClosedReason) => void>>;
+let onForfeit: ReturnType<typeof vi.fn<(room: Room, loser: PlayerIndex) => void>>;
 let rooms: RoomManager;
+
+function makeRooms(extra: Partial<RoomManagerOptions> = {}): RoomManager {
+  return new RoomManager({
+    roundSeed: () => SEED,
+    reconnectTimeoutMs: GRACE,
+    now: () => Date.now(),
+    onClose,
+    onForfeit,
+    ...extra,
+  });
+}
 
 function setup(): { room: Room; tokens: [string, string] } {
   const created = rooms.create('s0', 'A');
@@ -26,7 +40,8 @@ function setup(): { room: Room; tokens: [string, string] } {
 beforeEach(() => {
   vi.useFakeTimers();
   onClose = vi.fn<(room: Room, reason: RoomClosedReason) => void>();
-  rooms = new RoomManager({ roundSeed: () => SEED, reconnectGraceMs: GRACE, onClose });
+  onForfeit = vi.fn<(room: Room, loser: PlayerIndex) => void>();
+  rooms = makeRooms();
 });
 
 afterEach(() => {
@@ -79,11 +94,14 @@ describe('RoomManager', () => {
     expect(rooms.get(room.id)).toBe(room);
   });
 
-  it('U9: grace expiry closes the room with player_left', () => {
-    const { room } = setup();
-    rooms.disconnect(room.id, 1, 's1');
+  it('U9 (RC4): timeout in a waiting room closes it with player_left', () => {
+    const created = rooms.create('s0', 'A');
+    if (!created.ok) throw new Error();
+    const { room } = created.value;
+    rooms.disconnect(room.id, 0, 's0');
     vi.advanceTimersByTime(GRACE);
     expect(onClose).toHaveBeenCalledExactlyOnceWith(room, 'player_left');
+    expect(onForfeit).not.toHaveBeenCalled();
     expect(rooms.get(room.id)).toBeUndefined();
   });
 
@@ -120,7 +138,91 @@ describe('RoomManager', () => {
     rooms.disconnect(room.id, 1, 's1');
     vi.advanceTimersByTime(GRACE * 2);
     expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onForfeit).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('RoomManager: reconnect timeout (spec-9)', () => {
+  it('X3: a disconnected seat reports the remaining time, a connected one null', () => {
+    const { room } = setup();
+    rooms.disconnect(room.id, 1, 's1');
+    let view = toRoomState(room, 0, Date.now());
+    expect(view.players[1]).toEqual({
+      seat: 1,
+      name: 'B',
+      connected: false,
+      reconnectRemainingMs: GRACE,
+    });
+    expect(view.players[0]!.reconnectRemainingMs).toBeNull();
+    vi.advanceTimersByTime(100);
+    view = toRoomState(room, 0, Date.now());
+    expect(view.players[1]!.reconnectRemainingMs).toBe(GRACE - 100);
+  });
+
+  it('X4: rejoin before the deadline clears it; nothing fires later', () => {
+    const { room, tokens } = setup();
+    rooms.disconnect(room.id, 1, 's1');
+    vi.advanceTimersByTime(GRACE - 300);
+    expect(rooms.rejoin('s1b', room.id, tokens[1]).ok).toBe(true);
+    expect(toRoomState(room, 0).players[1]).toMatchObject({
+      connected: true,
+      reconnectRemainingMs: null,
+    });
+    expect(room.seats[1]!.reconnectDeadline).toBeNull();
+    vi.advanceTimersByTime(GRACE * 3);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onForfeit).not.toHaveBeenCalled();
+  });
+
+  it('RC5: timeout while the opponent is online → forfeit, room removed, score kept', () => {
+    const { room, tokens } = setup();
+    const scores = [...room.match!.scores];
+    rooms.disconnect(room.id, 1, 's1');
+    vi.advanceTimersByTime(GRACE);
+    expect(onForfeit).toHaveBeenCalledExactlyOnceWith(room, 1);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(room.match).toMatchObject({ winner: 0, forfeit: 1, scores });
+    expect(room.ready).toEqual([false, false]);
+    expect(roomPhase(room)).toBe('finished');
+    expect(rooms.get(room.id)).toBeUndefined();
+    expect(rooms.rejoin('s1c', room.id, tokens[1])).toEqual({
+      ok: false,
+      error: 'ROOM_NOT_FOUND',
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('RC5/X6: a finished round of an unfinished match also ends with a forfeit', () => {
+    const { room } = setup();
+    playToEnd(room);
+    rooms.ready(room.id, 1);
+    rooms.disconnect(room.id, 1, 's1');
+    vi.advanceTimersByTime(GRACE);
+    expect(onForfeit).toHaveBeenCalledExactlyOnceWith(room, 1);
+    expect(room.match!.forfeit).toBe(1);
+    expect(room.ready).toEqual([false, false]);
+  });
+
+  it('X7 (RC6): match already won → player_left, no forfeit', () => {
+    rooms = makeRooms({ matchTarget: 1 });
+    const { room } = setup();
+    playToEnd(room);
+    expect(room.match!.winner).not.toBeNull();
+    rooms.disconnect(room.id, 1, 's1');
+    vi.advanceTimersByTime(GRACE);
+    expect(onClose).toHaveBeenCalledExactlyOnceWith(room, 'player_left');
+    expect(onForfeit).not.toHaveBeenCalled();
+  });
+
+  it('X7 (RC6): the opponent is offline too → player_left once, no forfeit', () => {
+    const { room } = setup();
+    rooms.disconnect(room.id, 1, 's1');
+    vi.advanceTimersByTime(GRACE / 2);
+    rooms.disconnect(room.id, 0, 's0');
+    vi.advanceTimersByTime(GRACE * 2);
+    expect(onClose).toHaveBeenCalledExactlyOnceWith(room, 'player_left');
+    expect(onForfeit).not.toHaveBeenCalled();
   });
 });
 
@@ -216,12 +318,7 @@ describe('RoomManager: match (spec-7)', () => {
   });
 
   it('M5: a finished match + both ready → rematch 0:0 in the same room', () => {
-    rooms = new RoomManager({
-      roundSeed: () => SEED,
-      reconnectGraceMs: GRACE,
-      onClose,
-      matchTarget: 1,
-    });
+    rooms = makeRooms({ matchTarget: 1 });
     const { room } = setup();
     playToEnd(room);
     expect(room.match!.winner).toBe(room.round!.result!.winner);
@@ -242,12 +339,7 @@ describe('RoomManager: match (spec-7)', () => {
   });
 
   it('N11: a drawn fish keeps the score and is added to the history', () => {
-    rooms = new RoomManager({
-      roundSeed: () => SEED,
-      reconnectGraceMs: GRACE,
-      onClose,
-      startRound: fishDrawRound,
-    });
+    rooms = makeRooms({ startRound: fishDrawRound });
     const { room } = setup();
     // контроль: та же позиция в shared действительно даёт ничью
     const local = applyMove(fishDrawRound(), 0, { type: 'play', tile: [3, 6], end: 'right' });

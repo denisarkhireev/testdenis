@@ -14,9 +14,11 @@ import './lobby.css';
 export interface LobbyProps {
   socket: ClientSocket;
   status: ConnectionStatus;
+  /** spec-8 D9: база ссылки-приглашения из `server:hello`; нет — origin страницы. */
+  publicUrl?: string;
 }
 
-export function Lobby({ socket, status }: LobbyProps) {
+export function Lobby({ socket, status, publicUrl }: LobbyProps) {
   const { state, create, join, goHome } = useLobby(socket, status);
   const canSubmit = status === 'connected' && state.pending === null;
 
@@ -24,12 +26,12 @@ export function Lobby({ socket, status }: LobbyProps) {
     case 'closed':
       return <ClosedScreen reason={state.closed!} onHome={goHome} />;
     case 'game':
-      return <GameScreen room={state.room!} socket={socket} status={status} />;
+      return <GameScreen room={state.room!} socket={socket} status={status} onHome={goHome} />;
     case 'waiting':
       return (
         <WaitingScreen
           roomId={state.room!.roomId}
-          inviteUrl={buildInviteUrl(window.location.origin, state.room!.roomId)}
+          inviteUrl={buildInviteUrl(publicUrl ?? window.location.origin, state.room!.roomId)}
         />
       );
     case 'restoring':

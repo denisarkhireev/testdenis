@@ -14,6 +14,8 @@ export interface ServerHelloPayload {
   protocolVersion: number;
   /** ISO-8601 */
   serverTime: string;
+  /** spec-8 D9: публичный origin для ссылок-приглашений (`PUBLIC_URL`), без завершающего `/`. Нет — клиент берёт свой origin. */
+  publicUrl?: string;
 }
 
 export type RoomPhase = 'waiting' | 'playing' | 'finished';
@@ -22,6 +24,8 @@ export interface RoomPlayer {
   seat: PlayerIndex;
   name: string;
   connected: boolean;
+  /** spec-9 RC8: сколько мс ещё ждём возвращения; null — игрок подключён. */
+  reconnectRemainingMs: number | null;
 }
 
 /** Состояние комнаты глазами одного игрока. Единственное событие с состоянием. */

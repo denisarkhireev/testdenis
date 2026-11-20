@@ -1,0 +1,12 @@
+/* spec-9 RC14: плашка «Переподключение…» прилипает к верху и не сдвигает стол на узком экране. */
+.reconnecting-banner {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  background: #fff4d6;
+  border-bottom: 1px solid #e0b84f;
+  color: #6b4500;
+  text-align: center;
+}
