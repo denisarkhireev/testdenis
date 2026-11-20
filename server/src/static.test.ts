@@ -9,6 +9,7 @@ import { startServer, type RunningServer } from './app';
 
 const INDEX = '<!doctype html><title>Domino</title>';
 const APP_JS = 'console.log("app");';
+const MP3 = Buffer.from([0xff, 0xfb, 0x90, 0x64, 0, 0, 0, 0]);
 
 let parent: string;
 let staticDir: string;
@@ -41,6 +42,7 @@ beforeAll(async () => {
   await mkdir(path.join(staticDir, 'assets'), { recursive: true });
   await writeFile(path.join(staticDir, 'index.html'), INDEX);
   await writeFile(path.join(staticDir, 'assets', 'app-abc.js'), APP_JS);
+  await writeFile(path.join(staticDir, 'assets', 'tile-abc.mp3'), MP3);
   // Файл рядом со staticDir — не должен отдаваться.
   await writeFile(path.join(parent, 'secret'), 'top secret');
   server = await startServer({ port: 0, host: '127.0.0.1', staticDir });
@@ -75,6 +77,14 @@ describe('static client (staticDir)', () => {
     expect(res.headers['cache-control']).toBe('public, max-age=31536000, immutable');
     expect(res.headers['content-length']).toBe(String(Buffer.byteLength(APP_JS)));
     expect(res.body).toBe(APP_JS);
+  });
+
+  it('ST1 (spec-10): GET /assets/*.mp3 → audio/mpeg, immutable', async () => {
+    const res = await raw('GET', '/assets/tile-abc.mp3');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('audio/mpeg');
+    expect(res.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+    expect(res.headers['content-length']).toBe(String(MP3.length));
   });
 
   it('S4: missing file with an extension → 404', async () => {
