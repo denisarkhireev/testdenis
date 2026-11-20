@@ -37,6 +37,11 @@ export interface PlayerOptions {
   viewport?: { width: number; height: number };
   /** Сохранённый `ctx.storageState()` — «тот же браузер» после закрытия (spec-9 X16). */
   storageState?: StorageState;
+  /**
+   * spec-10 §4.4: по умолчанию 'reduce' — полёты костей не запускаются, DOM обновляется
+   * мгновенно; 'no-preference' — с анимациями (E17).
+   */
+  reducedMotion?: 'reduce' | 'no-preference';
 }
 
 /** Контексты, открытые `newPlayer` в текущем тесте; закрываются фикстурой `test` ниже. */
@@ -48,12 +53,13 @@ const openContexts = new Set<BrowserContext>();
  */
 export async function newPlayer(
   browser: Browser,
-  { viewport, storageState }: PlayerOptions = {},
+  { viewport, storageState, reducedMotion = 'reduce' }: PlayerOptions = {},
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
     ...devices['Desktop Chrome'],
     baseURL: base.info().project.use.baseURL,
     permissions: ['clipboard-read', 'clipboard-write'],
+    reducedMotion,
     ...(viewport ? { viewport } : {}),
     ...(storageState ? { storageState } : {}),
   });
@@ -86,10 +92,10 @@ export interface StartedGame {
 /** A и B — в разных контекстах — встречаются в комнате; обе вкладки на столе. */
 export async function startGame(
   browser: Browser,
-  { viewport }: Pick<PlayerOptions, 'viewport'> = {},
+  { viewport, reducedMotion }: Pick<PlayerOptions, 'viewport' | 'reducedMotion'> = {},
 ): Promise<StartedGame> {
-  const { context: ctxA, page: a } = await newPlayer(browser, { viewport });
-  const { context: ctxB, page: b } = await newPlayer(browser, { viewport });
+  const { context: ctxA, page: a } = await newPlayer(browser, { viewport, reducedMotion });
+  const { context: ctxB, page: b } = await newPlayer(browser, { viewport, reducedMotion });
   const link = await createGame(a, 'Аня');
   await joinByLink(b, link, 'Боб');
   for (const page of [a, b]) {

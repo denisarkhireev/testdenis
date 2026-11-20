@@ -12,6 +12,8 @@ export default defineConfig({
     baseURL: externalBaseUrl ?? 'http://localhost:5173',
     // E4 читает буфер обмена в Chromium.
     permissions: ['clipboard-read', 'clipboard-write'],
+    // spec-10 §4.4: полёты костей выключены (newPlayer ставит то же сам).
+    reducedMotion: 'reduce',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: externalBaseUrl
