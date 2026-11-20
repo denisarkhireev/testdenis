@@ -1,23 +1,13 @@
 import { startServer } from './app';
+import { loadConfig } from './config';
 
-const port = Number(process.env.PORT ?? 3001);
-const host = process.env.HOST ?? '0.0.0.0';
-const corsOrigin = process.env.CORS_ORIGIN ?? 'http://localhost:5173';
-const reconnectGraceMs = Number(process.env.RECONNECT_GRACE_MS) || undefined;
-const matchTarget = parseMatchTarget(process.env.MATCH_TARGET);
+// Невалидные PUBLIC_URL / MATCH_TARGET / STATIC_DIR — throw здесь, процесс падает на старте.
+const config = loadConfig(process.env);
 
-/** spec-7: MATCH_TARGET — целое > 0; не задана — 101 (по умолчанию в startServer). */
-function parseMatchTarget(raw: string | undefined): number | undefined {
-  if (raw === undefined || raw.trim() === '') return undefined;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new Error(`MATCH_TARGET must be a positive integer, got "${raw}"`);
-  }
-  return value;
-}
-
-const server = await startServer({ port, host, corsOrigin, reconnectGraceMs, matchTarget });
-console.info(`Server listening on http://${host}:${server.port}`);
+const server = await startServer(config);
+console.info(`Server listening on http://${config.host}:${server.port}`);
+console.info(`publicUrl: ${config.publicUrl ?? '(not set, clients use their own origin)'}`);
+console.info(config.staticDir ? `staticDir: ${config.staticDir}` : 'static: off');
 
 let closing = false;
 const shutdown = async () => {

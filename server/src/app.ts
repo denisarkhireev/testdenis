@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Server } from 'socket.io';
 import {
@@ -13,6 +13,7 @@ import {
 } from '@domino/shared';
 import { notifyRoomClosed, registerRoomHandlers } from './rooms/handlers';
 import { RoomManager } from './rooms/RoomManager';
+import { createStaticHandler, type StaticHandler } from './static';
 
 export const DEFAULT_RECONNECT_GRACE_MS = 60_000;
 
@@ -26,6 +27,10 @@ export interface StartServerOptions {
   reconnectGraceMs?: number;
   /** Цель матча, очков (spec-7 M1). По умолчанию MATCH_TARGET = 101. */
   matchTarget?: number;
+  /** spec-8 D8/D9: публичный origin для ссылок-приглашений; уходит клиенту в `server:hello`. */
+  publicUrl?: string;
+  /** spec-8 D2: каталог собранного клиента; не задан — статика выключена (D7). */
+  staticDir?: string;
 }
 
 export interface RunningServer {
@@ -36,15 +41,14 @@ export interface RunningServer {
 export function startServer(opts: StartServerOptions): Promise<RunningServer> {
   const matchTarget = opts.matchTarget ?? MATCH_TARGET;
   createMatch(matchTarget); // throw на старте, а не при первом room:join
+  const serveStatic = opts.staticDir ? createStaticHandler(opts.staticDir) : undefined;
   const httpServer = createServer((req, res) => {
     // Запросы /socket.io/* Socket.IO перехватывает раньше и сюда не передаёт.
-    if (req.method === 'GET' && req.url === '/health') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok' }));
-      return;
-    }
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Not Found' }));
+    void handleHttp(req, res, serveStatic).catch((err: unknown) => {
+      console.error('HTTP handler failed', err);
+      if (!res.headersSent) sendJson(res, 500, { error: 'Internal Server Error' });
+      else res.destroy();
+    });
   });
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
@@ -64,6 +68,8 @@ export function startServer(opts: StartServerOptions): Promise<RunningServer> {
     socket.emit('server:hello', {
       protocolVersion: PROTOCOL_VERSION,
       serverTime: new Date().toISOString(),
+      // D9: ключа нет вовсе, если PUBLIC_URL не задан.
+      ...(opts.publicUrl ? { publicUrl: opts.publicUrl } : {}),
     });
     socket.on('disconnect', (reason) => {
       console.info(`disconnected ${socket.id} ${reason}`);
@@ -92,4 +98,30 @@ export function startServer(opts: StartServerOptions): Promise<RunningServer> {
       });
     });
   });
+}
+
+const HEALTH_PATHS = new Set(['/healthz', '/health']);
+
+async function handleHttp(
+  req: IncomingMessage,
+  res: ServerResponse,
+  serveStatic: StaticHandler | undefined,
+): Promise<void> {
+  const { pathname } = new URL(req.url ?? '/', 'http://x');
+  if ((req.method === 'GET' || req.method === 'HEAD') && HEALTH_PATHS.has(pathname)) {
+    sendJson(res, 200, { status: 'ok' });
+    return;
+  }
+  if (serveStatic && (await serveStatic(req, res))) return;
+  sendJson(res, 404, { error: 'Not Found' });
+}
+
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  const payload = JSON.stringify(body);
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(payload),
+  });
+  // HEAD: Node сам не отправит тело.
+  res.end(payload);
 }
