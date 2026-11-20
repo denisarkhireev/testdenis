@@ -92,3 +92,17 @@ describe('App connection status', () => {
     expect(fake.listenerCount('disconnect')).toBe(0);
   });
 });
+
+describe('App header (spec-10 B2)', () => {
+  it('SN8: sound-toggle is on the lobby screen, next to the title', () => {
+    const { fake, socket } = createFakeSocket();
+    render(<App socket={socket} />);
+    fake.serverEmit('server:hello', hello(PROTOCOL_VERSION));
+    const toggle = screen.getByTestId('sound-toggle');
+    expect(toggle).toBeVisible();
+    expect(toggle.closest('header')).toContainElement(
+      screen.getByRole('heading', { name: 'Domino' }),
+    );
+    localStorage.clear();
+  });
+});
