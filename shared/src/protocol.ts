@@ -24,6 +24,8 @@ export interface RoomPlayer {
   seat: PlayerIndex;
   name: string;
   connected: boolean;
+  /** spec-9 RC8: сколько мс ещё ждём возвращения; null — игрок подключён. */
+  reconnectRemainingMs: number | null;
 }
 
 /** Состояние комнаты глазами одного игрока. Единственное событие с состоянием. */

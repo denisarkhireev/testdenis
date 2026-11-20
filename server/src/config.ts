@@ -9,8 +9,8 @@ export interface ServerConfig {
   host: string;
   /** CORS_ORIGIN, по умолчанию 'http://localhost:5173' (dev: клиент на Vite). */
   corsOrigin: string;
-  /** RECONNECT_GRACE_MS; не задана — значение по умолчанию startServer. */
-  reconnectGraceMs?: number;
+  /** RECONNECT_TIMEOUT, мс (spec-9 RC2); не задана — 120 000 (по умолчанию в startServer). */
+  reconnectTimeoutMs?: number;
   /** MATCH_TARGET (spec-7); не задана — 101. */
   matchTarget?: number;
   /** PUBLIC_URL (D8): origin для ссылок-приглашений. */
@@ -24,7 +24,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): ServerConfig {
     port: Number(env.PORT ?? 3001),
     host: env.HOST ?? '0.0.0.0',
     corsOrigin: env.CORS_ORIGIN ?? 'http://localhost:5173',
-    reconnectGraceMs: Number(env.RECONNECT_GRACE_MS) || undefined,
+    reconnectTimeoutMs: parseReconnectTimeout(env.RECONNECT_TIMEOUT),
     matchTarget: parseMatchTarget(env.MATCH_TARGET),
     publicUrl: parsePublicUrl(env.PUBLIC_URL),
     staticDir: parseStaticDir(env.STATIC_DIR),
@@ -37,6 +37,16 @@ export function parseMatchTarget(raw: string | undefined): number | undefined {
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`MATCH_TARGET must be a positive integer, got "${raw}"`);
+  }
+  return value;
+}
+
+/** spec-9 RC2: RECONNECT_TIMEOUT — целое число миллисекунд > 0; не задана — 120 000. */
+export function parseReconnectTimeout(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`RECONNECT_TIMEOUT must be a positive integer (milliseconds), got "${raw}"`);
   }
   return value;
 }

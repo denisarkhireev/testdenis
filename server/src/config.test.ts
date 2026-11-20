@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadConfig, parsePublicUrl } from './config';
+import { loadConfig, parsePublicUrl, parseReconnectTimeout } from './config';
 
 let tmp: string | undefined;
 
@@ -61,5 +61,20 @@ describe('loadConfig / parsePublicUrl', () => {
 
   it('P8: MATCH_TARGET=0 still throws (spec-7)', () => {
     expect(() => loadConfig({ MATCH_TARGET: '0' })).toThrow(/MATCH_TARGET/);
+  });
+
+  it('X11: RECONNECT_TIMEOUT is a positive integer of milliseconds', () => {
+    expect(loadConfig({ RECONNECT_TIMEOUT: '5000' }).reconnectTimeoutMs).toBe(5000);
+    expect(loadConfig({}).reconnectTimeoutMs).toBeUndefined();
+    expect(parseReconnectTimeout('  ')).toBeUndefined();
+    for (const raw of ['abc', '0', '-5', '1.5']) {
+      expect(() => loadConfig({ RECONNECT_TIMEOUT: raw })).toThrow(
+        /RECONNECT_TIMEOUT must be a positive integer \(milliseconds\)/,
+      );
+    }
+  });
+
+  it('X11: RECONNECT_GRACE_MS is no longer read', () => {
+    expect(loadConfig({ RECONNECT_GRACE_MS: '5000' }).reconnectTimeoutMs).toBeUndefined();
   });
 });

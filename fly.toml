@@ -11,6 +11,7 @@ kill_timeout = 10
 [env]
   PORT = "8080"
   MATCH_TARGET = "101"
+  RECONNECT_TIMEOUT = "120000"   # spec-9: мс ожидания отключившегося игрока до техпоражения
   PUBLIC_URL = "https://domino-testdenis.fly.dev"
 
 [http_service]

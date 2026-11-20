@@ -11,11 +11,11 @@ import {
   type ServerToClientEvents,
   type SocketData,
 } from '@domino/shared';
-import { notifyRoomClosed, registerRoomHandlers } from './rooms/handlers';
+import { notifyForfeit, notifyRoomClosed, registerRoomHandlers } from './rooms/handlers';
 import { RoomManager } from './rooms/RoomManager';
 import { createStaticHandler, type StaticHandler } from './static';
 
-export const DEFAULT_RECONNECT_GRACE_MS = 60_000;
+export const DEFAULT_RECONNECT_TIMEOUT_MS = 120_000;
 
 export interface StartServerOptions {
   port: number;
@@ -23,8 +23,8 @@ export interface StartServerOptions {
   corsOrigin?: string | string[];
   /** Seed каждого нового раунда. По умолчанию crypto.randomInt(0, 2 ** 32). Тесты подставляют константу. */
   roundSeed?: () => number;
-  /** Сколько держать место отключившегося игрока, мс. По умолчанию 60_000. */
-  reconnectGraceMs?: number;
+  /** spec-9 RC2: сколько ждать возвращения отключившегося игрока, мс. По умолчанию 120_000. */
+  reconnectTimeoutMs?: number;
   /** Цель матча, очков (spec-7 M1). По умолчанию MATCH_TARGET = 101. */
   matchTarget?: number;
   /** spec-8 D8/D9: публичный origin для ссылок-приглашений; уходит клиенту в `server:hello`. */
@@ -53,14 +53,16 @@ export function startServer(opts: StartServerOptions): Promise<RunningServer> {
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
     httpServer,
-    { cors: { origin: opts.corsOrigin } },
+    // RC16: пропажа сети без закрытия сокета обнаруживается ≤ 15 с.
+    { cors: { origin: opts.corsOrigin }, pingInterval: 10_000, pingTimeout: 5_000 },
   );
 
   const rooms = new RoomManager({
     roundSeed: opts.roundSeed ?? (() => randomInt(0, 2 ** 32)),
-    reconnectGraceMs: opts.reconnectGraceMs ?? DEFAULT_RECONNECT_GRACE_MS,
+    reconnectTimeoutMs: opts.reconnectTimeoutMs ?? DEFAULT_RECONNECT_TIMEOUT_MS,
     matchTarget,
     onClose: (room, reason) => notifyRoomClosed(io, room, reason),
+    onForfeit: (room, loser) => notifyForfeit(io, room, loser),
   });
 
   io.on('connection', (socket) => {
@@ -87,7 +89,7 @@ export function startServer(opts: StartServerOptions): Promise<RunningServer> {
         port,
         close: () =>
           new Promise<void>((resolveClose, rejectClose) => {
-            // io.close() отключает клиентов и закрывает http-сервер; grace-таймеры
+            // io.close() отключает клиентов и закрывает http-сервер; таймеры
             // отключений, поставленные при этом, снимает closeAll().
             io.close((err) => {
               rooms.closeAll();
