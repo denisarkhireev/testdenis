@@ -5,6 +5,7 @@ import {
   type InterServerEvents,
   type PlayerIndex,
   type RoomClosedReason,
+  type RoomReactionPayload,
   type RoomStatePayload,
   type ServerToClientEvents,
   type SocketData,
@@ -15,6 +16,7 @@ import {
   isObject,
   parseMove,
   parseName,
+  parseReactionId,
   parseRoomId,
   parseToken,
   parseTurnSeconds,
@@ -81,6 +83,13 @@ export function broadcastState(io: GameServer, room: Room): void {
   for (const seat of [0, 1] as const) {
     const socket = socketById(io, room.seats[seat]?.socketId ?? null);
     socket?.emit('room:state', toRoomState(room, seat));
+  }
+}
+
+/** spec-12 RX6: реакция — каждому подключённому месту по отдельности, включая отправителя. */
+function emitReaction(io: GameServer, room: Room, reaction: RoomReactionPayload): void {
+  for (const seat of [0, 1] as const) {
+    socketById(io, room.seats[seat]?.socketId ?? null)?.emit('room:reaction', reaction);
   }
 }
 
@@ -244,6 +253,25 @@ export function registerRoomHandlers(io: GameServer, rooms: RoomManager): void {
           console.info(`room ${room.id} round ${room.match!.roundNumber} started`);
         } else console.info(`room ${room.id} ready (seat ${seat})`);
         broadcastState(io, room);
+      }),
+    );
+
+    socket.on(
+      'game:react',
+      withAck('game:react', (payload, ack) => {
+        if (!isObject(payload)) return ack({ ok: false, error: 'INVALID_PAYLOAD' });
+        const reactionId = parseReactionId(payload.reactionId);
+        if (!reactionId.ok) return ack({ ok: false, error: 'UNKNOWN_REACTION' });
+        const { roomId, seat } = socket.data;
+        if (roomId === undefined || seat === undefined) {
+          return ack({ ok: false, error: 'NOT_IN_ROOM' });
+        }
+
+        // Без логов на каждую реакцию (§4.2 п.6).
+        const result = rooms.react(roomId, seat, reactionId.value);
+        if (!result.ok) return ack({ ok: false, error: result.error });
+        ack({ ok: true });
+        emitReaction(io, result.value.room, result.value.reaction);
       }),
     );
 

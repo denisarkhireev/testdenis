@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseMove, parseName, parseRoomId, parseTurnSeconds } from './validate';
+import { parseMove, parseName, parseReactionId, parseRoomId, parseTurnSeconds } from './validate';
 
 describe('validate', () => {
   it('U3: parseName trims and limits length to 1–20', () => {
@@ -59,5 +59,13 @@ describe('validate', () => {
       expect(parseTurnSeconds(bad, allowed, 60)).toEqual({ ok: false });
     }
     expect(parseTurnSeconds(3, [0, 3, 30, 60], 60)).toEqual({ ok: true, value: 3 });
+  });
+
+  it('RX3: parseReactionId accepts any string as is, rejects non-strings', () => {
+    expect(parseReactionId(' fish')).toEqual({ ok: true, value: ' fish' });
+    expect(parseReactionId('')).toEqual({ ok: true, value: '' });
+    for (const bad of [42, null, undefined, {}, ['fish']]) {
+      expect(parseReactionId(bad)).toEqual({ ok: false });
+    }
   });
 });

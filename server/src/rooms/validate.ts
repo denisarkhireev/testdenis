@@ -78,3 +78,8 @@ export function parseTurnSeconds(
   }
   return ok(value);
 }
+
+/** spec-12 RX3: только «строка ли»; членство в REACTION_IDS проверяет RoomManager.react. */
+export function parseReactionId(value: unknown): Parsed<string> {
+  return typeof value === 'string' ? ok(value) : fail;
+}

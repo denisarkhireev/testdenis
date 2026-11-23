@@ -39,6 +39,8 @@ export interface StartServerOptions {
   staticDir?: string;
   /** spec-11 §4.2: доп. значение времени на ход, с (только e2e, TURN_TIMER_TEST_SECONDS). */
   turnTimerTestSeconds?: number;
+  /** Часы RoomManager (дедлайны, кулдаун реакций spec-12). По умолчанию Date.now; только для тестов. */
+  now?: () => number;
 }
 
 export interface RunningServer {
@@ -76,6 +78,7 @@ export function startServer(opts: StartServerOptions): Promise<RunningServer> {
     roundSeed: opts.roundSeed ?? (() => randomInt(0, 2 ** 32)),
     reconnectTimeoutMs: opts.reconnectTimeoutMs ?? DEFAULT_RECONNECT_TIMEOUT_MS,
     matchTarget,
+    ...(opts.now ? { now: opts.now } : {}),
     onClose: (room, reason) => notifyRoomClosed(io, room, reason),
     onForfeit: (room, loser) => notifyForfeit(io, room, loser),
     allowedTurnSeconds,

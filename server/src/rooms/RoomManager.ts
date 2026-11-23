@@ -4,8 +4,10 @@ import {
   DEFAULT_TURN_SECONDS,
   TURN_SECONDS_OPTIONS,
   forfeitMatch,
+  isReactionId,
   nextRoundNumber,
   pickAutoMove,
+  REACTION_COOLDOWN_MS,
   recordRound,
   startRound,
   type MatchState,
@@ -13,9 +15,11 @@ import {
   type Move,
   type MoveError,
   type PlayerIndex,
+  type ReactionErrorCode,
   type RoomClosedReason,
   type RoomErrorCode,
   type RoomPhase,
+  type RoomReactionPayload,
   type RoundState,
 } from '@domino/shared';
 import { generateRoomId, generateToken } from './ids';
@@ -31,6 +35,8 @@ export interface SeatState {
   reconnectTimer: NodeJS.Timeout | null;
   /** RC1, RC8: момент (по `now()`), когда истекает ожидание; null — место подключено. */
   reconnectDeadline: number | null;
+  /** spec-12 RX4, RX9: когда (по `now()`) место последний раз отправило принятую реакцию. */
+  lastReactionAt: number | null;
 }
 
 /** spec-11: таймер текущего хода (T2–T10). */
@@ -101,6 +107,8 @@ export class RoomManager {
   private readonly rooms = new Map<string, Room>();
   /** spec-11 T8: сквозной счётчик ходов для таймера. */
   private turnSeq = 0;
+  /** spec-12 RX7: сквозной счётчик реакций. */
+  private reactionSeq = 0;
 
   constructor(private readonly opts: RoomManagerOptions) {}
 
@@ -122,7 +130,17 @@ export class RoomManager {
     const token = generateToken();
     const room: Room = {
       id,
-      seats: [{ name, token, socketId, reconnectTimer: null, reconnectDeadline: null }, null],
+      seats: [
+        {
+          name,
+          token,
+          socketId,
+          reconnectTimer: null,
+          reconnectDeadline: null,
+          lastReactionAt: null,
+        },
+        null,
+      ],
       round: null,
       match: null,
       ready: [false, false],
@@ -142,7 +160,14 @@ export class RoomManager {
     if (!room) return err('ROOM_NOT_FOUND');
     if (room.seats[1] !== null) return err('ROOM_FULL');
     const token = generateToken();
-    room.seats[1] = { name, token, socketId, reconnectTimer: null, reconnectDeadline: null };
+    room.seats[1] = {
+      name,
+      token,
+      socketId,
+      reconnectTimer: null,
+      reconnectDeadline: null,
+      lastReactionAt: null,
+    };
     // K4: waiting → playing синхронно при успешном входе; M1: вместе с первым раундом — матч.
     room.match = createMatch(this.opts.matchTarget);
     room.ready = [false, false];
@@ -206,6 +231,28 @@ export class RoomManager {
     room.ready = [false, false];
     this.syncTurnTimer(room);
     return ok({ room, changed: true, started: rematch ? 'match' : 'round' });
+  }
+
+  /**
+   * spec-12: реакция места (RX2–RX9). Порядок проверок — RX5. Состояние комнаты, кроме
+   * `lastReactionAt` места, не меняется; таймеры не трогаются (RX8).
+   */
+  react(
+    roomId: string,
+    seat: PlayerIndex,
+    reactionId: string,
+  ): Result<{ room: Room; reaction: RoomReactionPayload }, ReactionErrorCode> {
+    const room = this.rooms.get(roomId);
+    const state = room?.seats[seat];
+    if (!room || !state) return err('NOT_IN_ROOM');
+    if (room.round === null) return err('GAME_NOT_STARTED');
+    if (!isReactionId(reactionId)) return err('UNKNOWN_REACTION');
+    const now = this.now();
+    if (state.lastReactionAt !== null && now - state.lastReactionAt < REACTION_COOLDOWN_MS) {
+      return err('TOO_FREQUENT');
+    }
+    state.lastReactionAt = now;
+    return ok({ room, reaction: { seat, reactionId, seq: ++this.reactionSeq } });
   }
 
   /**

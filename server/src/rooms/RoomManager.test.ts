@@ -685,3 +685,95 @@ describe('RoomManager: turn timer (spec-11)', () => {
     expect(onAutoMove).not.toHaveBeenCalled();
   });
 });
+
+describe('RoomManager: reactions (spec-12)', () => {
+  it('RX2a: waiting → GAME_NOT_STARTED; unknown room / empty seat → NOT_IN_ROOM', () => {
+    const created = rooms.create('s0', 'A');
+    if (!created.ok) throw new Error('create failed');
+    const id = created.value.room.id;
+    expect(rooms.react(id, 0, 'thumbs_up')).toEqual({ ok: false, error: 'GAME_NOT_STARTED' });
+    expect(rooms.react(id, 1, 'thumbs_up')).toEqual({ ok: false, error: 'NOT_IN_ROOM' });
+    expect(rooms.react('NOPE22', 0, 'thumbs_up')).toEqual({ ok: false, error: 'NOT_IN_ROOM' });
+  });
+
+  it('RX2c/RX2d: allowed when not your turn and on a finished round', () => {
+    const { room } = setup();
+    const other = room.round!.currentPlayer === 0 ? 1 : 0;
+    expect(rooms.react(room.id, other, 'hurry').ok).toBe(true);
+    room.round = { ...room.round!, status: 'finished' };
+    expect(roomPhase(room)).toBe('finished');
+    expect(rooms.react(room.id, room.round.currentPlayer, 'good_game').ok).toBe(true);
+  });
+
+  it('RX3/RX5a: a string outside the list → UNKNOWN_REACTION, even during cooldown', () => {
+    const { room } = setup();
+    for (const id of ['привет', '👍', '', '__proto__', 'a'.repeat(10_000)]) {
+      expect(rooms.react(room.id, 0, id)).toEqual({ ok: false, error: 'UNKNOWN_REACTION' });
+    }
+    expect(room.seats[0].lastReactionAt).toBeNull();
+    expect(rooms.react(room.id, 0, 'fish').ok).toBe(true);
+    expect(rooms.react(room.id, 0, 'привет')).toEqual({ ok: false, error: 'UNKNOWN_REACTION' });
+  });
+
+  it('RX4a/RX4b: 1999 ms → TOO_FREQUENT, exactly 2000 ms → ok', () => {
+    const { room } = setup();
+    expect(rooms.react(room.id, 0, 'wow').ok).toBe(true);
+    vi.advanceTimersByTime(1999);
+    expect(rooms.react(room.id, 0, 'wow')).toEqual({ ok: false, error: 'TOO_FREQUENT' });
+    vi.advanceTimersByTime(1);
+    expect(rooms.react(room.id, 0, 'wow').ok).toBe(true);
+  });
+
+  it('RX4c: cooldown is per seat', () => {
+    const { room } = setup();
+    expect(rooms.react(room.id, 0, 'wow').ok).toBe(true);
+    vi.advanceTimersByTime(100);
+    expect(rooms.react(room.id, 1, 'wow').ok).toBe(true);
+  });
+
+  it('RX4d: a rejected attempt does not extend the cooldown', () => {
+    const { room } = setup();
+    expect(rooms.react(room.id, 0, 'angry').ok).toBe(true);
+    vi.advanceTimersByTime(500);
+    expect(rooms.react(room.id, 0, 'angry')).toEqual({ ok: false, error: 'TOO_FREQUENT' });
+    vi.advanceTimersByTime(1500);
+    expect(rooms.react(room.id, 0, 'angry').ok).toBe(true);
+  });
+
+  it('RX6/RX7: payload is { seat, reactionId, seq } with a growing seq', () => {
+    const { room } = setup();
+    const first = rooms.react(room.id, 0, 'good_game');
+    const second = rooms.react(room.id, 1, 'laugh');
+    if (!first.ok || !second.ok) throw new Error('react failed');
+    expect(first.value.reaction).toEqual({
+      seat: 0,
+      reactionId: 'good_game',
+      seq: expect.any(Number),
+    });
+    expect(second.value.reaction.seat).toBe(1);
+    expect(second.value.reaction.seq).toBeGreaterThan(first.value.reaction.seq);
+  });
+
+  it('RX8: a reaction does not touch the round, readiness or the turn timer', () => {
+    const { room } = setup();
+    const round = room.round;
+    const timer = room.turnTimer;
+    const ready = [...room.ready];
+    const timers = vi.getTimerCount();
+    expect(rooms.react(room.id, room.round!.currentPlayer, 'hurry').ok).toBe(true);
+    expect(room.round).toBe(round);
+    expect(room.turnTimer).toBe(timer);
+    expect(room.ready).toEqual(ready);
+    expect(vi.getTimerCount()).toBe(timers);
+  });
+
+  it('RX9: rejoin does not reset the cooldown', () => {
+    const { room, tokens } = setup();
+    expect(rooms.react(room.id, 0, 'party').ok).toBe(true);
+    rooms.disconnect(room.id, 0, 's0');
+    vi.advanceTimersByTime(500);
+    expect(rooms.rejoin('s0b', room.id, tokens[0]).ok).toBe(true);
+    vi.advanceTimersByTime(100);
+    expect(rooms.react(room.id, 0, 'party')).toEqual({ ok: false, error: 'TOO_FREQUENT' });
+  });
+});
