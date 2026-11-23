@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { MATCH_TARGET, createMatch, nextRoundNumber, recordRound, type MatchState } from './match';
+import {
+  MATCH_TARGET,
+  createMatch,
+  forfeitMatch,
+  nextRoundNumber,
+  recordRound,
+  type MatchState,
+} from './match';
 import type { RoundResult } from './types';
 
 const domino = (winner: 0 | 1, points: number): RoundResult => ({
@@ -20,6 +27,7 @@ describe('match', () => {
       roundNumber: 1,
       rounds: [],
       winner: null,
+      forfeit: null,
     });
     expect(createMatch(5).target).toBe(5);
     expect(() => createMatch(0)).toThrow();
@@ -69,5 +77,24 @@ describe('match', () => {
     const next = nextRoundNumber(match);
     expect(next).toEqual({ ...match, roundNumber: 2 });
     expect(match.roundNumber).toBe(1);
+  });
+
+  it('X1: forfeitMatch gives the win to the opponent, score and history untouched', () => {
+    expect(createMatch().forfeit).toBeNull();
+    const match = recordRound(withScores([12, 30]), domino(0, 7));
+    const snapshot = structuredClone(match);
+    const next = forfeitMatch(match, 1);
+    expect(next.winner).toBe(0);
+    expect(next.forfeit).toBe(1);
+    expect(next.scores).toEqual(match.scores);
+    expect(next.rounds).toEqual(match.rounds);
+    expect(match).toEqual(snapshot);
+    expect(forfeitMatch(createMatch(), 0)).toMatchObject({ winner: 1, forfeit: 0 });
+  });
+
+  it('X2: forfeitMatch on a finished match throws', () => {
+    const finished = recordRound(withScores([100, 0]), domino(0, 5));
+    expect(finished.winner).toBe(0);
+    expect(() => forfeitMatch(finished, 1)).toThrow();
   });
 });

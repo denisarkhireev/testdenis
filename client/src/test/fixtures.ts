@@ -1,4 +1,4 @@
-import type { MatchView, PlayerView, RoomStatePayload } from '@domino/shared';
+import { BOT_NAME, type MatchView, type PlayerView, type RoomStatePayload } from '@domino/shared';
 
 /** Вид раунда для компонентных тестов: начало раунда, ход `you = 0`, первый ход 6-6. */
 export function makeView(partial: Partial<PlayerView> = {}): PlayerView {
@@ -33,6 +33,7 @@ export function makeMatch(partial: Partial<MatchView> = {}): MatchView {
     roundNumber: 1,
     rounds: [],
     winner: null,
+    forfeit: null,
     ready: [false, false],
     ...partial,
   };
@@ -48,11 +49,29 @@ export function makeRoom(
     you: view?.you ?? 0,
     phase: view?.status === 'finished' ? 'finished' : 'playing',
     players: [
-      { seat: 0, name: 'Аня', connected: true },
-      { seat: 1, name: 'Боб', connected: true },
+      { seat: 0, name: 'Аня', connected: true, reconnectRemainingMs: null, bot: false },
+      { seat: 1, name: 'Боб', connected: true, reconnectRemainingMs: null, bot: false },
     ],
     game: view,
     match: makeMatch(),
+    turnSeconds: 0,
+    matchTarget: 101,
+    handSize: 7,
+    turnTimer: null,
     ...overrides,
   };
+}
+
+/** spec-15: `room:state` комнаты с ботом — Аня (0, вы) против «Бот» (1). */
+export function makeBotRoom(
+  view: PlayerView | null = makeView(),
+  overrides: Partial<RoomStatePayload> = {},
+): RoomStatePayload {
+  return makeRoom(view, {
+    players: [
+      { seat: 0, name: 'Аня', connected: true, reconnectRemainingMs: null, bot: false },
+      { seat: 1, name: BOT_NAME, connected: true, reconnectRemainingMs: null, bot: true },
+    ],
+    ...overrides,
+  });
 }

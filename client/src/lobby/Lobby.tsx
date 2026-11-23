@@ -14,9 +14,25 @@ import './lobby.css';
 export interface LobbyProps {
   socket: ClientSocket;
   status: ConnectionStatus;
+  /** spec-8 D9: база ссылки-приглашения из `server:hello`; нет — origin страницы. */
+  publicUrl?: string;
+  /** spec-11: варианты времени на ход из `server:hello`; нет — TURN_SECONDS_OPTIONS. */
+  turnSecondsOptions?: number[] | undefined;
+  /** spec-14: варианты цели матча и размера руки из `server:hello`; нет — константы shared. */
+  matchTargetOptions?: number[] | undefined;
+  defaultMatchTarget?: number | undefined;
+  handSizeOptions?: number[] | undefined;
 }
 
-export function Lobby({ socket, status }: LobbyProps) {
+export function Lobby({
+  socket,
+  status,
+  publicUrl,
+  turnSecondsOptions,
+  matchTargetOptions,
+  defaultMatchTarget,
+  handSizeOptions,
+}: LobbyProps) {
   const { state, create, join, goHome } = useLobby(socket, status);
   const canSubmit = status === 'connected' && state.pending === null;
 
@@ -24,12 +40,13 @@ export function Lobby({ socket, status }: LobbyProps) {
     case 'closed':
       return <ClosedScreen reason={state.closed!} onHome={goHome} />;
     case 'game':
-      return <GameScreen room={state.room!} socket={socket} status={status} />;
+      return <GameScreen room={state.room!} socket={socket} status={status} onHome={goHome} />;
     case 'waiting':
       return (
         <WaitingScreen
           roomId={state.room!.roomId}
-          inviteUrl={buildInviteUrl(window.location.origin, state.room!.roomId)}
+          settings={state.room!}
+          inviteUrl={buildInviteUrl(publicUrl ?? window.location.origin, state.room!.roomId)}
         />
       );
     case 'restoring':
@@ -40,6 +57,7 @@ export function Lobby({ socket, status }: LobbyProps) {
       return (
         <JoinScreen
           roomId={state.urlRoom!}
+          settings={state.roomInfo}
           canSubmit={canSubmit}
           error={state.error}
           onJoin={(name) => void join(name)}
@@ -50,7 +68,11 @@ export function Lobby({ socket, status }: LobbyProps) {
         <HomeScreen
           canSubmit={canSubmit}
           error={state.error}
-          onCreate={(name) => void create(name)}
+          turnSecondsOptions={turnSecondsOptions}
+          matchTargetOptions={matchTargetOptions}
+          defaultMatchTarget={defaultMatchTarget}
+          handSizeOptions={handSizeOptions}
+          onCreate={(name, settings, opponent) => void create(name, settings, opponent)}
         />
       );
   }

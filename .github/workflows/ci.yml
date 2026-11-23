@@ -45,3 +45,70 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+  # spec-8: production-образ + e2e против контейнера.
+  docker:
+    runs-on: ubuntu-latest
+    needs: checks
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: docker build -t domino:ci .
+      - name: Run container and wait for /healthz
+        run: |
+          docker run -d --name domino -p 8080:8080 \
+            -e PUBLIC_URL=http://localhost:8080 domino:ci
+          for i in $(seq 1 30); do curl -fsS http://localhost:8080/healthz && exit 0; sleep 1; done
+          docker logs domino; exit 1
+      - name: Image checks (non-root, no dev dependencies)
+        run: |
+          test "$(docker exec domino whoami)" = node
+          for pkg in vite vitest react typescript; do
+            if docker exec domino test -e "node_modules/$pkg"; then echo "::error::$pkg found in runtime image"; exit 1; fi
+          done
+          docker image ls domino:ci
+      - run: npm run test:e2e -- --grep "E1:|E3:|E4:|E12"
+        env:
+          E2E_BASE_URL: http://localhost:8080
+      - if: always()
+        run: docker logs domino
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-docker
+          path: playwright-report/
+          retention-days: 7
+
+  # spec-8: деплой на Fly.io после зелёных проверок на main. Без секрета — success с notice.
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [checks, e2e, docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - name: Check FLY_API_TOKEN
+        id: token
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "::notice title=Deploy skipped::Секрет FLY_API_TOKEN не задан — деплой пропущен. Как настроить: README → «Деплой»."
+            echo "### Деплой пропущен" >> "$GITHUB_STEP_SUMMARY"
+            echo "Секрет \`FLY_API_TOKEN\` не задан. Как настроить: README → «Деплой»." >> "$GITHUB_STEP_SUMMARY"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.token.outputs.present == 'true'
+        uses: actions/checkout@v4
+      - if: steps.token.outputs.present == 'true'
+        uses: superfly/flyctl-actions/setup-flyctl@master
+      - if: steps.token.outputs.present == 'true'
+        run: flyctl deploy --remote-only --ha=false

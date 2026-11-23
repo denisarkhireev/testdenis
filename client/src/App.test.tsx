@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PROTOCOL_VERSION } from '@domino/shared';
 import { App } from './App';
@@ -34,15 +34,41 @@ describe('App connection status', () => {
     expect(errorSpy).toHaveBeenCalledWith('Protocol version mismatch');
   });
 
-  it('U5: goes connected → disconnected → connected on reconnect', () => {
+  it('U5/C-X10: connected → reconnecting (banner) → connected on the next hello', () => {
     const { fake, socket } = createFakeSocket();
     render(<App socket={socket} />);
     fake.serverEmit('server:hello', hello(PROTOCOL_VERSION));
     expect(status()).toHaveTextContent(/^connected$/);
+    expect(screen.queryByTestId('reconnecting-banner')).toBeNull();
+    fake.active = true; // socket.io переподключается сам
     fake.serverEmit('disconnect', 'transport close');
-    expect(status()).toHaveTextContent(/^disconnected$/);
+    expect(status()).toHaveTextContent(/^reconnecting…$/);
+    expect(screen.getByTestId('reconnecting-banner')).toHaveTextContent('Переподключение…');
     fake.serverEmit('server:hello', hello(PROTOCOL_VERSION));
     expect(status()).toHaveTextContent(/^connected$/);
+    expect(screen.queryByTestId('reconnecting-banner')).toBeNull();
+  });
+
+  it('C-X11: disconnect of an inactive socket → disconnected, no banner', () => {
+    const { fake, socket } = createFakeSocket();
+    render(<App socket={socket} />);
+    fake.serverEmit('server:hello', hello(PROTOCOL_VERSION));
+    fake.active = false; // ручной disconnect(): переподключения не будет
+    fake.serverEmit('disconnect', 'io client disconnect');
+    expect(status()).toHaveTextContent(/^disconnected$/);
+    expect(screen.queryByTestId('reconnecting-banner')).toBeNull();
+  });
+
+  it('C-X12: the window offline event closes the transport at once', () => {
+    const { fake, socket } = createFakeSocket();
+    const { unmount } = render(<App socket={socket} />);
+    act(() => {
+      window.dispatchEvent(new Event('offline'));
+    });
+    expect(fake.io.engine.close).toHaveBeenCalledTimes(1);
+    unmount();
+    window.dispatchEvent(new Event('offline'));
+    expect(fake.io.engine.close).toHaveBeenCalledTimes(1);
   });
 
   it('opens the connection only after subscribing to server:hello', () => {
@@ -64,5 +90,19 @@ describe('App connection status', () => {
     expect(fake.off).toHaveBeenCalledWith('disconnect', expect.any(Function));
     expect(fake.listenerCount('server:hello')).toBe(0);
     expect(fake.listenerCount('disconnect')).toBe(0);
+  });
+});
+
+describe('App header (spec-10 B2)', () => {
+  it('SN8: sound-toggle is on the lobby screen, next to the title', () => {
+    const { fake, socket } = createFakeSocket();
+    render(<App socket={socket} />);
+    fake.serverEmit('server:hello', hello(PROTOCOL_VERSION));
+    const toggle = screen.getByTestId('sound-toggle');
+    expect(toggle).toBeVisible();
+    expect(toggle.closest('header')).toContainElement(
+      screen.getByRole('heading', { name: 'Domino' }),
+    );
+    localStorage.clear();
   });
 });

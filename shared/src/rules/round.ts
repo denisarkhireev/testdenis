@@ -1,5 +1,5 @@
 import { canPlace, boardEnds, placeTile } from './board';
-import { deal, shuffle } from './deck';
+import { deal, HAND_SIZE, shuffle } from './deck';
 import { resolveRound } from './scoring';
 import { compareOpening, createDoubleSix, MAX_PIP, sameTile, tileKey, TILE_COUNT } from './tiles';
 import { createRng } from './rng';
@@ -20,6 +20,8 @@ export interface StartRoundOptions {
   seed?: number;
   /** Готовый порядок 28 костей (для тестов); валидируется по R1, иначе throw. */
   deck?: readonly Tile[];
+  /** spec-14 S4: размер руки из HAND_SIZES, по умолчанию HAND_SIZE (7); иначе throw. */
+  handSize?: number;
 }
 
 const ENDS: readonly End[] = ['left', 'right'];
@@ -80,7 +82,10 @@ function findOpening(hands: readonly [readonly Tile[], readonly Tile[]]): {
 export function startRound(opts: StartRoundOptions = {}): RoundState {
   const deck = opts.deck ?? shuffle(createDoubleSix(), createRng(opts.seed ?? 0));
   assertValidDeck(deck);
-  const { hands, boneyard } = deal(deck.map((t): Tile => [t[0], t[1]]));
+  const { hands, boneyard } = deal(
+    deck.map((t): Tile => [t[0], t[1]]),
+    opts.handSize ?? HAND_SIZE,
+  );
   const opening = findOpening(hands);
   return {
     hands,

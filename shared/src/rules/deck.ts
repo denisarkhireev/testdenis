@@ -1,5 +1,8 @@
 import type { Tile } from './types';
 
+/** spec-14 S1: допустимые размеры руки. */
+export const HAND_SIZES: readonly number[] = [5, 6, 7];
+/** Размер руки по умолчанию (R3). */
 export const HAND_SIZE = 7;
 
 /** Fisher–Yates: for i = n-1 … 1: j = floor(rng() * (i + 1)); swap(i, j). Возвращает новый массив. */
@@ -14,10 +17,19 @@ export function shuffle<T>(items: readonly T[], rng: () => number): T[] {
   return result;
 }
 
-/** Раздача по R3: [0..6] → игроку 0, [7..13] → игроку 1, остальное → базар (порядок сохраняется). */
-export function deal(deck: readonly Tile[]): { hands: [Tile[], Tile[]]; boneyard: Tile[] } {
+/**
+ * Раздача по R3 / spec-14 S4: [0..h) → игроку 0, [h..2h) → игроку 1, остальное → базар
+ * (порядок сохраняется). h ∉ HAND_SIZES → throw.
+ */
+export function deal(
+  deck: readonly Tile[],
+  handSize: number = HAND_SIZE,
+): { hands: [Tile[], Tile[]]; boneyard: Tile[] } {
+  if (!HAND_SIZES.includes(handSize)) {
+    throw new Error(`deal: hand size must be one of ${HAND_SIZES.join(', ')}, got ${handSize}`);
+  }
   return {
-    hands: [deck.slice(0, HAND_SIZE), deck.slice(HAND_SIZE, HAND_SIZE * 2)],
-    boneyard: deck.slice(HAND_SIZE * 2),
+    hands: [deck.slice(0, handSize), deck.slice(handSize, handSize * 2)],
+    boneyard: deck.slice(handSize * 2),
   };
 }
