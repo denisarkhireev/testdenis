@@ -34,6 +34,8 @@ describe('rooms', () => {
       game: null,
       match: null,
       turnSeconds: 60,
+      matchTarget: 101,
+      handSize: 7,
       turnTimer: null,
     });
   });

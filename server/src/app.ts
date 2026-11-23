@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { Server } from 'socket.io';
 import {
   createMatch,
+  HAND_SIZE_OPTIONS,
   MATCH_TARGET,
   PROTOCOL_VERSION,
   TURN_SECONDS_OPTIONS,
@@ -31,7 +32,10 @@ export interface StartServerOptions {
   roundSeed?: () => number;
   /** spec-9 RC2: сколько ждать возвращения отключившегося игрока, мс. По умолчанию 120_000. */
   reconnectTimeoutMs?: number;
-  /** Цель матча, очков (spec-7 M1). По умолчанию MATCH_TARGET = 101. */
+  /**
+   * Цель матча по умолчанию, очков (spec-7 M1, spec-14 S2). По умолчанию MATCH_TARGET = 101.
+   * Значение вне 51/101/151 добавляется в допустимые варианты.
+   */
   matchTarget?: number;
   /** spec-8 D8/D9: публичный origin для ссылок-приглашений; уходит клиенту в `server:hello`. */
   publicUrl?: string;
@@ -93,6 +97,10 @@ export function startServer(opts: StartServerOptions): Promise<RunningServer> {
       // D9: ключа нет вовсе, если PUBLIC_URL не задан.
       ...(opts.publicUrl ? { publicUrl: opts.publicUrl } : {}),
       turnSecondsOptions: [...allowedTurnSeconds],
+      // spec-14 S2
+      matchTargetOptions: [...rooms.allowedMatchTargets],
+      defaultMatchTarget: rooms.defaultMatchTarget,
+      handSizeOptions: [...HAND_SIZE_OPTIONS],
     });
     socket.on('disconnect', (reason) => {
       console.info(`disconnected ${socket.id} ${reason}`);

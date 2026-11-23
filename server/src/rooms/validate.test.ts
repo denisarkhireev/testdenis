@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { parseMove, parseName, parseReactionId, parseRoomId, parseTurnSeconds } from './validate';
+import {
+  parseMove,
+  parseName,
+  parseOption,
+  parseReactionId,
+  parseRoomId,
+  parseTurnSeconds,
+} from './validate';
 
 describe('validate', () => {
   it('U3: parseName trims and limits length to 1–20', () => {
@@ -66,6 +73,18 @@ describe('validate', () => {
     expect(parseReactionId('')).toEqual({ ok: true, value: '' });
     for (const bad of [42, null, undefined, {}, ['fish']]) {
       expect(parseReactionId(bad)).toEqual({ ok: false });
+    }
+  });
+
+  it('S3-1: parseOption — missing → fallback, only listed integers', () => {
+    const allowed = [51, 101, 151];
+    expect(parseOption(undefined, allowed, 101)).toEqual({ ok: true, value: 101 });
+    expect(parseOption(151, allowed, 101)).toEqual({ ok: true, value: 151 });
+    for (const bad of [100, '101', null, 101.5, NaN, [101], {}]) {
+      expect(parseOption(bad, allowed, 101)).toEqual({ ok: false });
+    }
+    for (const bad of [4, 8, 6.5, '5']) {
+      expect(parseOption(bad, [5, 6, 7], 7)).toEqual({ ok: false });
     }
   });
 });

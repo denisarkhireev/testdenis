@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyMove,
+  createDoubleSix,
   createMatch,
   getLegalMoves,
   startRound,
   type PlayerIndex,
   type RoomClosedReason,
   type RoundState,
+  type Tile,
 } from '@domino/shared';
 import { toRoomState } from './handlers';
 import { RoomManager, roomPhase, type Room, type RoomManagerOptions } from './RoomManager';
@@ -32,7 +34,7 @@ function makeRooms(extra: Partial<RoomManagerOptions> = {}): RoomManager {
 }
 
 function setup(turnSeconds?: number): { room: Room; tokens: [string, string] } {
-  const created = rooms.create('s0', 'A', turnSeconds);
+  const created = rooms.create('s0', 'A', turnSeconds === undefined ? {} : { turnSeconds });
   if (!created.ok) throw new Error('create failed');
   const joined = rooms.join('s1', created.value.room.id, 'B');
   if (!joined.ok) throw new Error('join failed');
@@ -448,7 +450,7 @@ function timerView(room: Room) {
 describe('RoomManager: turn timer (spec-11)', () => {
   it('T1: create keeps turnSeconds, 60 by default', () => {
     const a = rooms.create('s0', 'A');
-    const b = rooms.create('s1', 'B', 30);
+    const b = rooms.create('s1', 'B', { turnSeconds: 30 });
     expect(a.ok && a.value.room.turnSeconds).toBe(60);
     expect(b.ok && b.value.room.turnSeconds).toBe(30);
     expect(a.ok && a.value.room.turnTimer).toBeNull(); // waiting
@@ -775,5 +777,131 @@ describe('RoomManager: reactions (spec-12)', () => {
     expect(rooms.rejoin('s0b', room.id, tokens[0]).ok).toBe(true);
     vi.advanceTimersByTime(100);
     expect(rooms.react(room.id, 0, 'party')).toEqual({ ok: false, error: 'TOO_FREQUENT' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// spec-14: настройки комнаты
+// ---------------------------------------------------------------------------
+
+describe('RoomManager: room settings (spec-14)', () => {
+  it('S1-1: create keeps matchTarget / handSize; join deals hands of 5 and a match to 51', () => {
+    const created = rooms.create('s0', 'A', { matchTarget: 51, handSize: 5, turnSeconds: 0 });
+    if (!created.ok) throw new Error('create failed');
+    const room = created.value.room;
+    expect(room.matchTarget).toBe(51);
+    expect(room.handSize).toBe(5);
+    expect(room.turnSeconds).toBe(0);
+    expect(toRoomState(room, 0)).toMatchObject({ phase: 'waiting', matchTarget: 51, handSize: 5 });
+
+    expect(rooms.join('s1', room.id, 'B').ok).toBe(true);
+    expect(room.match!.target).toBe(51);
+    expect(room.round!.hands[0]).toHaveLength(5);
+    expect(room.round!.hands[1]).toHaveLength(5);
+    expect(room.round!.boneyard).toHaveLength(18);
+    const view = toRoomState(room, 1);
+    expect(view).toMatchObject({ matchTarget: 51, handSize: 5 });
+    expect(view.game!.hand).toHaveLength(5);
+    expect(view.game!.opponentHandCount).toBe(5);
+    expect(view.game!.boneyardCount).toBe(18);
+  });
+
+  it('S1-2: next round and rematch keep target 51 and hand 5', () => {
+    const created = rooms.create('s0', 'A', { matchTarget: 51, handSize: 5, turnSeconds: 0 });
+    if (!created.ok) throw new Error('create failed');
+    const room = created.value.room;
+    rooms.join('s1', room.id, 'B');
+
+    playToEnd(room);
+    for (let i = 0; room.match!.winner === null; i++) {
+      if (i > 100) throw new Error('match did not finish');
+      rooms.ready(room.id, 0);
+      expect(rooms.ready(room.id, 1)).toMatchObject({ ok: true, value: { started: 'round' } });
+      expect(room.round!.hands[0]).toHaveLength(5);
+      expect(room.round!.hands[1]).toHaveLength(5);
+      expect(room.round!.boneyard).toHaveLength(18);
+      expect(room.match!.target).toBe(51);
+      playToEnd(room);
+    }
+    expect(Math.max(...room.match!.scores)).toBeGreaterThanOrEqual(51);
+
+    rooms.ready(room.id, 0);
+    expect(rooms.ready(room.id, 1)).toMatchObject({ ok: true, value: { started: 'match' } });
+    expect(room.match!.target).toBe(51);
+    expect(room.match!.scores).toEqual([0, 0]);
+    expect(room.round!.hands[0]).toHaveLength(5);
+    expect(room.round!.boneyard).toHaveLength(18);
+    expect(room.matchTarget).toBe(51);
+    expect(room.handSize).toBe(5);
+  });
+
+  it('S1-3: create without settings uses opts.matchTarget, hand 7, 60 s', () => {
+    rooms = makeRooms({ matchTarget: 1 });
+    const created = rooms.create('s0', 'A');
+    if (!created.ok) throw new Error('create failed');
+    const room = created.value.room;
+    expect([room.matchTarget, room.handSize, room.turnSeconds]).toEqual([1, 7, 60]);
+    rooms.join('s1', room.id, 'B');
+    expect(room.match!.target).toBe(1);
+    expect(room.round!.hands[0]).toHaveLength(7);
+    expect(room.round!.boneyard).toHaveLength(14);
+  });
+
+  it('S2: allowedMatchTargets = {51, 101, 151} ∪ {default}', () => {
+    expect(rooms.defaultMatchTarget).toBe(101);
+    expect(rooms.allowedMatchTargets).toEqual([51, 101, 151]);
+    rooms = makeRooms({ matchTarget: 30 });
+    expect(rooms.defaultMatchTarget).toBe(30);
+    expect(rooms.allowedMatchTargets).toEqual([30, 51, 101, 151]);
+  });
+
+  it('S6-1: info returns the settings of an existing room, ROOM_NOT_FOUND otherwise', () => {
+    const created = rooms.create('s0', 'A', { matchTarget: 151, handSize: 6, turnSeconds: 30 });
+    if (!created.ok) throw new Error('create failed');
+    const id = created.value.room.id;
+    expect(rooms.info(id)).toEqual({
+      ok: true,
+      value: { matchTarget: 151, handSize: 6, turnSeconds: 30 },
+    });
+    rooms.join('s1', id, 'B');
+    expect(rooms.info(id)).toMatchObject({ ok: true, value: { matchTarget: 151 } });
+    expect(rooms.info('NOPE')).toEqual({ ok: false, error: 'ROOM_NOT_FOUND' });
+  });
+
+  it('T4-14: hand 5 — an auto-move may draw more than 14 tiles (16 draws + play)', () => {
+    const six = (a: number): Tile => [a, 6] as Tile;
+    const hand0: Tile[] = [
+      [0, 0],
+      [0, 1],
+      [0, 2],
+      [0, 3],
+      [0, 4],
+    ];
+    const hand1: Tile[] = [six(0), six(1), six(2), six(3), six(4)];
+    const misses = createDoubleSix().filter(
+      (t) => t[1] !== 6 && !hand0.some((h) => h[0] === t[0] && h[1] === t[1]),
+    );
+    expect(misses).toHaveLength(16);
+    rooms = makeRooms({
+      startRound: fixture(hand0, hand1, [...misses, six(5)], [{ tile: [6, 6], left: 6, right: 6 }]),
+    });
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const created = rooms.create('s0', 'A', { handSize: 5 });
+    if (!created.ok) throw new Error('create failed');
+    rooms.join('s1', created.value.room.id, 'B');
+    const room = created.value.room;
+
+    vi.advanceTimersByTime(LIMIT);
+    expect(onAutoMove).toHaveBeenCalledTimes(1);
+    expect(errors).not.toHaveBeenCalled();
+    const round = room.round!;
+    expect(round.boneyard).toEqual([]);
+    expect(round.hands[0]).toHaveLength(5 + 16);
+    expect(round.board.map((p) => p.tile)).toEqual([
+      [6, 6],
+      [5, 6],
+    ]);
+    expect(round.currentPlayer).toBe(1);
+    errors.mockRestore();
   });
 });

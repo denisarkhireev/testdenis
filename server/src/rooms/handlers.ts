@@ -1,5 +1,7 @@
 import {
+  DEFAULT_HAND_SIZE,
   DEFAULT_TURN_SECONDS,
+  HAND_SIZE_OPTIONS,
   toPlayerView,
   type ClientToServerEvents,
   type InterServerEvents,
@@ -16,6 +18,7 @@ import {
   isObject,
   parseMove,
   parseName,
+  parseOption,
   parseReactionId,
   parseRoomId,
   parseToken,
@@ -59,6 +62,8 @@ export function toRoomState(
     game: room.round ? toPlayerView(room.round, you) : null,
     match: room.match ? { ...room.match, ready: [room.ready[0], room.ready[1]] } : null,
     turnSeconds: room.turnSeconds,
+    matchTarget: room.matchTarget,
+    handSize: room.handSize,
     turnTimer: toTurnTimerView(room, now),
   };
 }
@@ -157,14 +162,28 @@ export function registerRoomHandlers(io: GameServer, rooms: RoomManager): void {
           rooms.allowedTurnSeconds,
           DEFAULT_TURN_SECONDS,
         );
-        if (!turnSeconds.ok) return ack({ ok: false, error: 'INVALID_PAYLOAD' });
+        const matchTarget = parseOption(
+          payload.matchTarget,
+          rooms.allowedMatchTargets,
+          rooms.defaultMatchTarget,
+        );
+        const handSize = parseOption(payload.handSize, HAND_SIZE_OPTIONS, DEFAULT_HAND_SIZE);
+        if (!turnSeconds.ok || !matchTarget.ok || !handSize.ok) {
+          return ack({ ok: false, error: 'INVALID_PAYLOAD' });
+        }
 
-        const result = rooms.create(socket.id, name.value, turnSeconds.value);
+        const result = rooms.create(socket.id, name.value, {
+          turnSeconds: turnSeconds.value,
+          matchTarget: matchTarget.value,
+          handSize: handSize.value,
+        });
         if (!result.ok) return ack({ ok: false, error: result.error });
         const { room, seat, token } = result.value;
         socket.data.roomId = room.id;
         socket.data.seat = seat;
-        console.info(`room ${room.id} created (turn ${room.turnSeconds}s)`);
+        console.info(
+          `room ${room.id} created (target ${room.matchTarget}, hand ${room.handSize}, turn ${room.turnSeconds}s)`,
+        );
         ack({ ok: true, roomId: room.id, seat, playerToken: token });
         broadcastState(io, room);
       }),
@@ -188,6 +207,19 @@ export function registerRoomHandlers(io: GameServer, rooms: RoomManager): void {
         console.info(`room ${room.id} joined, round started`);
         ack({ ok: true, roomId: room.id, seat, playerToken: token });
         broadcastState(io, room);
+      }),
+    );
+
+    // spec-14 S7: предпросмотр настроек; сокет не привязывается, room:state не шлётся.
+    socket.on(
+      'room:info',
+      withAck('room:info', (payload, ack) => {
+        if (!isObject(payload)) return ack({ ok: false, error: 'INVALID_PAYLOAD' });
+        const roomId = parseRoomId(payload.roomId);
+        if (!roomId.ok) return ack({ ok: false, error: 'INVALID_PAYLOAD' });
+        const result = rooms.info(roomId.value);
+        if (!result.ok) return ack({ ok: false, error: result.error });
+        ack({ ok: true, roomId: roomId.value, settings: result.value });
       }),
     );
 

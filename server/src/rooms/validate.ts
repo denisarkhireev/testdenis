@@ -66,8 +66,8 @@ export function parseMove(value: unknown): Parsed<Move> {
   }
 }
 
-/** spec-11 T1: целое из списка допустимых; нет поля — `fallback`. */
-export function parseTurnSeconds(
+/** spec-14 S3 (по образцу spec-11 T1): нет поля — `fallback`; иначе целое из `allowed`, иначе fail. */
+export function parseOption(
   value: unknown,
   allowed: readonly number[],
   fallback: number,
@@ -78,6 +78,9 @@ export function parseTurnSeconds(
   }
   return ok(value);
 }
+
+/** spec-11 T1: целое из списка допустимых; нет поля — `fallback`. */
+export const parseTurnSeconds = parseOption;
 
 /** spec-12 RX3: только «строка ли»; членство в REACTION_IDS проверяет RoomManager.react. */
 export function parseReactionId(value: unknown): Parsed<string> {

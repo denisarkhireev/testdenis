@@ -1,7 +1,10 @@
 import {
   applyMove,
   createMatch,
+  DEFAULT_HAND_SIZE,
   DEFAULT_TURN_SECONDS,
+  MATCH_TARGET,
+  MATCH_TARGET_OPTIONS,
   TURN_SECONDS_OPTIONS,
   forfeitMatch,
   isReactionId,
@@ -20,6 +23,7 @@ import {
   type RoomErrorCode,
   type RoomPhase,
   type RoomReactionPayload,
+  type RoomSettings,
   type RoundState,
 } from '@domino/shared';
 import { generateRoomId, generateToken } from './ids';
@@ -51,9 +55,6 @@ export interface TurnTimerState {
   handle: NodeJS.Timeout | null;
 }
 
-/** spec-11 T4: 14 доборов + ход — больше за один авто-ход не бывает. */
-const MAX_AUTO_MOVES = 15;
-
 export interface Room {
   id: string;
   seats: [SeatState, SeatState | null];
@@ -65,6 +66,10 @@ export interface Room {
   ready: [boolean, boolean];
   /** spec-11 T1: время на ход, с; 0 — таймер выключен. Не меняется до закрытия комнаты. */
   turnSeconds: number;
+  /** spec-14 S1, S6: цель матча комнаты. Не меняется до закрытия комнаты (раунды, реванш). */
+  matchTarget: number;
+  /** spec-14 S1, S4: размер руки комнаты. Не меняется до закрытия комнаты. */
+  handSize: number;
   /** spec-11: null — таймер не идёт (T3). */
   turnTimer: TurnTimerState | null;
 }
@@ -75,10 +80,13 @@ export interface RoomManagerOptions {
   reconnectTimeoutMs: number;
   /** Часы для дедлайнов (RC8). По умолчанию Date.now; тесты подставляют фейковые. */
   now?: () => number;
-  /** Цель матча (spec-7 M1), по умолчанию MATCH_TARGET. */
+  /** spec-14 S2, S3: цель матча комнаты по умолчанию (MATCH_TARGET из env), по умолчанию MATCH_TARGET. */
   matchTarget?: number;
-  /** Фабрика раунда — только для тестов (N11). По умолчанию startRound({ seed: roundSeed() }). */
-  startRound?: () => RoundState;
+  /**
+   * Фабрика раунда — только для тестов (N11). По умолчанию
+   * startRound({ seed: roundSeed(), handSize: room.handSize }).
+   */
+  startRound?: (room: Room) => RoundState;
   /** Вызывается, когда комната закрыта и уже удалена из менеджера. */
   onClose: (room: Room, reason: RoomClosedReason) => void;
   /** RC5: техническое поражение места `loser`; вызывается, когда комната уже удалена из менеджера. */
@@ -117,6 +125,16 @@ export class RoomManager {
     return this.opts.allowedTurnSeconds ?? TURN_SECONDS_OPTIONS;
   }
 
+  /** spec-14 S3: цель матча для room:create без поля matchTarget. */
+  get defaultMatchTarget(): number {
+    return this.opts.matchTarget ?? MATCH_TARGET;
+  }
+
+  /** spec-14 S2: {51, 101, 151} ∪ {defaultMatchTarget}, по возрастанию. */
+  get allowedMatchTargets(): readonly number[] {
+    return [...new Set([...MATCH_TARGET_OPTIONS, this.defaultMatchTarget])].sort((a, b) => a - b);
+  }
+
   get(roomId: string): Room | undefined {
     return this.rooms.get(roomId);
   }
@@ -124,8 +142,14 @@ export class RoomManager {
   create(
     socketId: string,
     name: string,
-    turnSeconds: number = DEFAULT_TURN_SECONDS,
+    settings: Partial<RoomSettings> = {},
   ): Result<{ room: Room; seat: 0; token: string }, RoomErrorCode> {
+    // Значения уже проверены обработчиком room:create (S3); здесь — только умолчания.
+    const {
+      matchTarget = this.defaultMatchTarget,
+      handSize = DEFAULT_HAND_SIZE,
+      turnSeconds = DEFAULT_TURN_SECONDS,
+    } = settings;
     const id = generateRoomId((candidate) => this.rooms.has(candidate));
     const token = generateToken();
     const room: Room = {
@@ -145,10 +169,23 @@ export class RoomManager {
       match: null,
       ready: [false, false],
       turnSeconds,
+      matchTarget,
+      handSize,
       turnTimer: null,
     };
     this.rooms.set(id, room);
     return ok({ room, seat: 0, token });
+  }
+
+  /** spec-14 S7: настройки комнаты без входа в неё; чистое чтение. */
+  info(roomId: string): Result<RoomSettings, 'ROOM_NOT_FOUND'> {
+    const room = this.rooms.get(roomId);
+    if (!room) return err('ROOM_NOT_FOUND');
+    return ok({
+      matchTarget: room.matchTarget,
+      handSize: room.handSize,
+      turnSeconds: room.turnSeconds,
+    });
   }
 
   join(
@@ -169,9 +206,9 @@ export class RoomManager {
       lastReactionAt: null,
     };
     // K4: waiting → playing синхронно при успешном входе; M1: вместе с первым раундом — матч.
-    room.match = createMatch(this.opts.matchTarget);
+    room.match = createMatch(room.matchTarget); // S6
     room.ready = [false, false];
-    room.round = this.newRound();
+    room.round = this.newRound(room);
     this.syncTurnTimer(room);
     return ok({ room, seat: 1, token });
   }
@@ -226,8 +263,8 @@ export class RoomManager {
     if (!room.ready[0] || !room.ready[1]) return ok({ room, changed: true, started: null });
 
     const rematch = room.match.winner !== null;
-    room.match = rematch ? createMatch(room.match.target) : nextRoundNumber(room.match);
-    room.round = this.newRound();
+    room.match = rematch ? createMatch(room.matchTarget) : nextRoundNumber(room.match);
+    room.round = this.newRound(room);
     room.ready = [false, false];
     this.syncTurnTimer(room);
     return ok({ room, changed: true, started: rematch ? 'match' : 'round' });
@@ -280,10 +317,11 @@ export class RoomManager {
     this.rooms.clear();
   }
 
-  private newRound(): RoundState {
+  /** spec-14 S4: раунд с размером руки комнаты. */
+  private newRound(room: Room): RoundState {
     return this.opts.startRound
-      ? this.opts.startRound()
-      : startRound({ seed: this.opts.roundSeed() });
+      ? this.opts.startRound(room)
+      : startRound({ seed: this.opts.roundSeed(), handSize: room.handSize });
   }
 
   private now(): number {
@@ -364,12 +402,14 @@ export class RoomManager {
     }
     timer.handle = null;
     const seat = timer.seat;
+    // spec-11 T4 / spec-14: весь базар доборов + ход (рука 7 → 15, рука 5 → 19) — больше не бывает.
+    const maxMoves = (room.round?.boneyard.length ?? 0) + 1;
     let moves = 0;
     let failed = false;
     while (
       room.round?.status === 'playing' &&
       room.round.currentPlayer === seat &&
-      moves < MAX_AUTO_MOVES
+      moves < maxMoves
     ) {
       const move = pickAutoMove(room.round);
       const result = move ? this.apply(room, seat, move) : err('ROUND_FINISHED');
