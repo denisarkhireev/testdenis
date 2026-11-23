@@ -94,7 +94,14 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
 
   return (
     <div className="game-table" ref={tableRef}>
-      {match && <MatchScore match={match} players={room.players} turnSeconds={room.turnSeconds} />}
+      {match && (
+        <MatchScore
+          match={match}
+          players={room.players}
+          turnSeconds={room.turnSeconds}
+          handSize={room.handSize}
+        />
+      )}
 
       {!finished && (
         <p

@@ -44,6 +44,8 @@ describe('HomeScreen: turn time choice (spec-11)', () => {
     expect(fake.emitWithAck).toHaveBeenCalledWith('room:create', {
       name: 'Аня',
       turnSeconds: 30,
+      matchTarget: 101,
+      handSize: 7,
     });
     expect(localStorage.getItem(KEY)).toBe('30');
   });
@@ -54,7 +56,12 @@ describe('HomeScreen: turn time choice (spec-11)', () => {
     expect(byId('turn-seconds-3')).toBeChecked();
     expect(screen.getByText('3 с (тест)')).toBeInTheDocument();
     create();
-    expect(fake.emitWithAck).toHaveBeenCalledWith('room:create', { name: 'Аня', turnSeconds: 3 });
+    expect(fake.emitWithAck).toHaveBeenCalledWith('room:create', {
+      name: 'Аня',
+      turnSeconds: 3,
+      matchTarget: 101,
+      handSize: 7,
+    });
   });
 
   it('TC2: a saved value not in the list → 60', () => {
@@ -74,6 +81,11 @@ describe('HomeScreen: turn time choice (spec-11)', () => {
     const fake = setup();
     expect(byId('turn-seconds-60')).toBeChecked();
     create();
-    expect(fake.emitWithAck).toHaveBeenCalledWith('room:create', { name: 'Аня', turnSeconds: 60 });
+    expect(fake.emitWithAck).toHaveBeenCalledWith('room:create', {
+      name: 'Аня',
+      turnSeconds: 60,
+      matchTarget: 101,
+      handSize: 7,
+    });
   });
 });

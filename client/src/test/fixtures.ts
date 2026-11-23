@@ -55,6 +55,8 @@ export function makeRoom(
     game: view,
     match: makeMatch(),
     turnSeconds: 0,
+    matchTarget: 101,
+    handSize: 7,
     turnTimer: null,
     ...overrides,
   };

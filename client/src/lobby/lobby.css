@@ -58,8 +58,8 @@ h2 code {
   overflow-wrap: anywhere;
 }
 
-/* spec-11: выбор времени на ход */
-.turn-seconds {
+/* spec-11, spec-14: выбор настроек комнаты (цель матча, костей в руке, время на ход) */
+.lobby-choice {
   display: flex;
   flex-wrap: wrap;
   gap: 0.25rem 1rem;
@@ -69,10 +69,15 @@ h2 code {
   border-radius: 6px;
 }
 
-.turn-seconds-option {
+.lobby-option {
   display: inline-flex;
   min-height: 44px;
   align-items: center;
   gap: 0.3rem;
   cursor: pointer;
+}
+
+/* spec-14: строка настроек комнаты на экранах входа и ожидания */
+.room-settings {
+  overflow-wrap: anywhere;
 }

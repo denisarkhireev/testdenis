@@ -10,6 +10,7 @@ const base: LobbyState = {
   pending: null,
   error: null,
   badLink: false,
+  roomInfo: null,
 };
 
 const room = (phase: RoomStatePayload['phase']): RoomStatePayload => ({
@@ -20,6 +21,8 @@ const room = (phase: RoomStatePayload['phase']): RoomStatePayload => ({
   game: null,
   match: null,
   turnSeconds: 60,
+  matchTarget: 101,
+  handSize: 7,
   turnTimer: null,
 });
 

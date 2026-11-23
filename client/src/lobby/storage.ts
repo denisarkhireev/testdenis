@@ -6,6 +6,8 @@ const SESSIONS_KEY = 'domino:sessions';
 const LEGACY_SESSION_KEY = 'domino:session';
 const NAME_KEY = 'domino:name';
 const TURN_SECONDS_KEY = 'domino:turnSeconds';
+const MATCH_TARGET_KEY = 'domino:matchTarget';
+const HAND_SIZE_KEY = 'domino:handSize';
 export const MAX_SESSIONS = 10;
 
 export interface Session {
@@ -109,10 +111,10 @@ export function saveName(name: string): void {
   }
 }
 
-/** spec-11: последнее выбранное время на ход, с; null — нет или не число. */
-export function loadTurnSeconds(): number | null {
+/** Сохранённое целое число; null — нет, не число или storage недоступен. */
+function loadInteger(key: string): number | null {
   try {
-    const raw = localStorage.getItem(TURN_SECONDS_KEY);
+    const raw = localStorage.getItem(key);
     if (raw === null) return null;
     const value = Number(raw);
     return Number.isInteger(value) ? value : null;
@@ -121,10 +123,24 @@ export function loadTurnSeconds(): number | null {
   }
 }
 
-export function saveTurnSeconds(turnSeconds: number): void {
+function saveInteger(key: string, value: number): void {
   try {
-    localStorage.setItem(TURN_SECONDS_KEY, String(turnSeconds));
+    localStorage.setItem(key, String(value));
   } catch {
     // выбор — только подсказка на следующий раз
   }
 }
+
+/** spec-11: последнее выбранное время на ход, с; null — нет или не число. */
+export const loadTurnSeconds = (): number | null => loadInteger(TURN_SECONDS_KEY);
+export const saveTurnSeconds = (turnSeconds: number): void =>
+  saveInteger(TURN_SECONDS_KEY, turnSeconds);
+
+/** spec-14: последняя выбранная цель матча; null — нет или не число. */
+export const loadMatchTarget = (): number | null => loadInteger(MATCH_TARGET_KEY);
+export const saveMatchTarget = (matchTarget: number): void =>
+  saveInteger(MATCH_TARGET_KEY, matchTarget);
+
+/** spec-14: последний выбранный размер руки; null — нет или не число. */
+export const loadHandSize = (): number | null => loadInteger(HAND_SIZE_KEY);
+export const saveHandSize = (handSize: number): void => saveInteger(HAND_SIZE_KEY, handSize);

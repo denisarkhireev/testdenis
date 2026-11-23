@@ -14,23 +14,40 @@ export interface ConnectionInfo {
   publicUrl: string | undefined;
   /** spec-11: варианты времени на ход из последнего `server:hello`; до него — undefined. */
   turnSecondsOptions: number[] | undefined;
+  /** spec-14 S2: варианты цели матча из последнего `server:hello`; до него — undefined. */
+  matchTargetOptions: number[] | undefined;
+  /** spec-14 S3: цель по умолчанию из последнего `server:hello`; до него — undefined. */
+  defaultMatchTarget: number | undefined;
+  /** spec-14 S1: размеры руки из последнего `server:hello`; до него — undefined. */
+  handSizeOptions: number[] | undefined;
+}
+
+/** Непустой массив чисел из hello или undefined (старый/битый сервер — клиент берёт константы). */
+function optionsOf(value: unknown): number[] | undefined {
+  return Array.isArray(value) && value.length > 0 && value.every((v) => Number.isInteger(v))
+    ? (value as number[])
+    : undefined;
 }
 
 export function useConnectionStatus(socket: ClientSocket): ConnectionInfo {
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [publicUrl, setPublicUrl] = useState<string | undefined>(undefined);
   const [turnSecondsOptions, setTurnSecondsOptions] = useState<number[] | undefined>(undefined);
+  const [matchTargetOptions, setMatchTargetOptions] = useState<number[] | undefined>(undefined);
+  const [defaultMatchTarget, setDefaultMatchTarget] = useState<number | undefined>(undefined);
+  const [handSizeOptions, setHandSizeOptions] = useState<number[] | undefined>(undefined);
 
   useEffect(() => {
     const onHello = (payload: ServerHelloPayload) => {
       if (payload.protocolVersion === PROTOCOL_VERSION) {
         setStatus('connected');
         setPublicUrl(payload.publicUrl || undefined);
-        setTurnSecondsOptions(
-          Array.isArray(payload.turnSecondsOptions) && payload.turnSecondsOptions.length > 0
-            ? payload.turnSecondsOptions
-            : undefined,
+        setTurnSecondsOptions(optionsOf(payload.turnSecondsOptions));
+        setMatchTargetOptions(optionsOf(payload.matchTargetOptions));
+        setDefaultMatchTarget(
+          Number.isInteger(payload.defaultMatchTarget) ? payload.defaultMatchTarget : undefined,
         );
+        setHandSizeOptions(optionsOf(payload.handSizeOptions));
       } else {
         console.error('Protocol version mismatch');
         setStatus('disconnected');
@@ -54,5 +71,12 @@ export function useConnectionStatus(socket: ClientSocket): ConnectionInfo {
     };
   }, [socket]);
 
-  return { status, publicUrl, turnSecondsOptions };
+  return {
+    status,
+    publicUrl,
+    turnSecondsOptions,
+    matchTargetOptions,
+    defaultMatchTarget,
+    handSizeOptions,
+  };
 }

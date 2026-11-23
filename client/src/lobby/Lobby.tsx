@@ -17,10 +17,22 @@ export interface LobbyProps {
   /** spec-8 D9: база ссылки-приглашения из `server:hello`; нет — origin страницы. */
   publicUrl?: string;
   /** spec-11: варианты времени на ход из `server:hello`; нет — TURN_SECONDS_OPTIONS. */
-  turnSecondsOptions?: number[];
+  turnSecondsOptions?: number[] | undefined;
+  /** spec-14: варианты цели матча и размера руки из `server:hello`; нет — константы shared. */
+  matchTargetOptions?: number[] | undefined;
+  defaultMatchTarget?: number | undefined;
+  handSizeOptions?: number[] | undefined;
 }
 
-export function Lobby({ socket, status, publicUrl, turnSecondsOptions }: LobbyProps) {
+export function Lobby({
+  socket,
+  status,
+  publicUrl,
+  turnSecondsOptions,
+  matchTargetOptions,
+  defaultMatchTarget,
+  handSizeOptions,
+}: LobbyProps) {
   const { state, create, join, goHome } = useLobby(socket, status);
   const canSubmit = status === 'connected' && state.pending === null;
 
@@ -33,6 +45,7 @@ export function Lobby({ socket, status, publicUrl, turnSecondsOptions }: LobbyPr
       return (
         <WaitingScreen
           roomId={state.room!.roomId}
+          settings={state.room!}
           inviteUrl={buildInviteUrl(publicUrl ?? window.location.origin, state.room!.roomId)}
         />
       );
@@ -44,6 +57,7 @@ export function Lobby({ socket, status, publicUrl, turnSecondsOptions }: LobbyPr
       return (
         <JoinScreen
           roomId={state.urlRoom!}
+          settings={state.roomInfo}
           canSubmit={canSubmit}
           error={state.error}
           onJoin={(name) => void join(name)}
@@ -55,7 +69,10 @@ export function Lobby({ socket, status, publicUrl, turnSecondsOptions }: LobbyPr
           canSubmit={canSubmit}
           error={state.error}
           turnSecondsOptions={turnSecondsOptions}
-          onCreate={(name, turnSeconds) => void create(name, turnSeconds)}
+          matchTargetOptions={matchTargetOptions}
+          defaultMatchTarget={defaultMatchTarget}
+          handSizeOptions={handSizeOptions}
+          onCreate={(name, settings) => void create(name, settings)}
         />
       );
   }

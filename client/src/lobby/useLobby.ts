@@ -3,6 +3,7 @@ import {
   PROTOCOL_VERSION,
   type RoomClosedPayload,
   type RoomClosedReason,
+  type RoomSettings,
   type RoomStatePayload,
   type ServerHelloPayload,
 } from '@domino/shared';
@@ -10,7 +11,7 @@ import type { ClientSocket } from '../socket';
 import type { ConnectionStatus } from '../useConnectionStatus';
 import { REJOIN_FAILED_TEXT, ROOM_ERROR_TEXT, TIMEOUT_TEXT } from './errors';
 import { parseRoomIdFromSearch } from './invite';
-import { createRoom, joinRoom, rejoinRoom, type JoinResult } from './roomApi';
+import { createRoom, joinRoom, rejoinRoom, roomInfo, type JoinResult } from './roomApi';
 import {
   clearSession,
   dropLegacySession,
@@ -32,8 +33,10 @@ export interface LobbyState {
   pending: Pending | null;
   /** Текст form-error. */
   error: string | null;
-  /** ROOM_NOT_FOUND на join. */
+  /** ROOM_NOT_FOUND на join или room:info. */
   badLink: boolean;
+  /** spec-14 S7: настройки комнаты по ссылке (room:info) до входа; null — ответа нет. */
+  roomInfo: RoomSettings | null;
 }
 
 export type Screen = 'closed' | 'game' | 'waiting' | 'restoring' | 'bad-link' | 'join' | 'home';
@@ -62,6 +65,7 @@ const HOME_STATE: LobbyState = {
   pending: null,
   error: null,
   badLink: false,
+  roomInfo: null,
 };
 
 /**
@@ -77,8 +81,8 @@ function initLobbyState(): LobbyState {
 
 export interface Lobby {
   state: LobbyState;
-  /** spec-11: `turnSeconds` — время на ход, с (0 — выкл). */
-  create(name: string, turnSeconds: number): Promise<void>;
+  /** spec-11, spec-14: настройки комнаты — цель матча, костей в руке, время на ход. */
+  create(name: string, settings: RoomSettings): Promise<void>;
   join(name: string): Promise<void>;
   goHome(): void;
 }
@@ -187,7 +191,13 @@ export function useLobby(socket: ClientSocket, status: ConnectionStatus): Lobby 
           // L3: URL создателя превращается в ссылку-приглашение.
           window.history.replaceState(null, '', `/?room=${result.roomId}`);
         }
-        setState((s) => ({ ...s, session, urlRoom: result.roomId, pending: null }));
+        setState((s) => ({
+          ...s,
+          session,
+          urlRoom: result.roomId,
+          pending: null,
+          roomInfo: null,
+        }));
       } else if (kind === 'join' && result.error === 'ROOM_NOT_FOUND') {
         setState((s) => ({ ...s, pending: null, badLink: true }));
       } else {
@@ -198,12 +208,43 @@ export function useLobby(socket: ClientSocket, status: ConnectionStatus): Lobby 
   );
 
   const create = useCallback(
-    (name: string, turnSeconds: number) =>
-      submit('create', name, (n) => createRoom(socket, { name: n, turnSeconds })),
+    (name: string, settings: RoomSettings) =>
+      submit('create', name, (n) => createRoom(socket, { name: n, ...settings })),
     [submit, socket],
   );
 
   const urlRoom = state.urlRoom;
+
+  // spec-14 S7: на экране входа по ссылке — настройки комнаты до нажатия «Войти».
+  // Повторяется при каждом переходе в connected (новый hello после обрыва).
+  const onJoinScreen =
+    urlRoom !== null &&
+    urlRoom !== 'invalid' &&
+    state.session === null &&
+    state.room === null &&
+    state.closed === null &&
+    !state.badLink;
+  const infoSeqRef = useRef(0);
+  useEffect(() => {
+    if (!onJoinScreen || status !== 'connected' || urlRoom === null || urlRoom === 'invalid') {
+      return;
+    }
+    const seq = ++infoSeqRef.current;
+    void roomInfo(socket, { roomId: urlRoom }).then((result) => {
+      if (!mountedRef.current || seq !== infoSeqRef.current || result === 'timeout') return;
+      if (result.ok) {
+        setState((s) => (s.urlRoom === urlRoom ? { ...s, roomInfo: result.settings } : s));
+      } else if (result.error === 'ROOM_NOT_FOUND') {
+        // Мёртвая ссылка распознаётся до ввода имени.
+        setState((s) =>
+          s.urlRoom === urlRoom && s.session === null ? { ...s, badLink: true, roomInfo: null } : s,
+        );
+      }
+    });
+    return () => {
+      infoSeqRef.current += 1;
+    };
+  }, [onJoinScreen, status, socket, urlRoom]);
   const join = useCallback(
     async (name: string) => {
       if (urlRoom === null || urlRoom === 'invalid') return;
