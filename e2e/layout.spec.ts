@@ -64,11 +64,8 @@ for (const width of WIDTHS) {
     await expect(page.getByTestId('create-button')).toBeEnabled();
     await expectLayout(page, KEY_IDS.home);
 
+    // spec-14 S7: мёртвая ссылка → экран «Комната не найдена» сразу (вёрстка входа — в E28).
     await page.goto('/?room=ZZZZZZ');
-    await expect(page.getByTestId('connection-status')).toHaveText('connected', TIMEOUT);
-    await page.getByTestId('name-input').fill(LONG_A);
-    await expectLayout(page, KEY_IDS.join);
-    await page.getByTestId('join-button').click();
     await expect(page.getByTestId('bad-link-screen')).toBeVisible(TIMEOUT);
     await expectLayout(page, KEY_IDS.badLink);
   });
@@ -86,6 +83,7 @@ for (const width of WIDTHS) {
     await b.goto(await a.getByTestId('invite-link').inputValue());
     await expect(b.getByTestId('join-screen')).toBeVisible(TIMEOUT);
     await expect(b.getByTestId('connection-status')).toHaveText('connected', TIMEOUT);
+    await expect(b.getByTestId('join-settings')).toBeVisible(TIMEOUT); // spec-14
     await b.getByTestId('name-input').fill(LONG_B);
     await expectLayout(b, KEY_IDS.join);
   });

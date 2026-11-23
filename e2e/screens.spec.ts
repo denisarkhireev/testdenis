@@ -49,6 +49,7 @@ for (const width of [360, 1280] as const) {
     await b.goto(await a.getByTestId('invite-link').inputValue());
     await expect(b.getByTestId('join-screen')).toBeVisible(TIMEOUT);
     await expect(b.getByTestId('connection-status')).toHaveText('connected', TIMEOUT);
+    await expect(b.getByTestId('join-settings')).toBeVisible(TIMEOUT); // spec-14
     await b.getByTestId('name-input').fill('Боб');
     await shot(b, '03-join.png', KEY_IDS.join);
 

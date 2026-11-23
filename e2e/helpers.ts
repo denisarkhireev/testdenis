@@ -31,10 +31,17 @@ export const LONG_B = 'Бобби-Длинноимённый1';
 
 /** spec-13 §4.4: ключевые testid экранов для `checkLayout` (layout.spec и screens.spec). */
 export const KEY_IDS = {
-  home: ['name-input', 'create-button', 'turn-seconds', 'sound-toggle'],
+  home: [
+    'name-input',
+    'create-button',
+    'match-target-choice',
+    'hand-size-choice',
+    'turn-seconds',
+    'sound-toggle',
+  ],
   badLink: ['home-button', 'sound-toggle'],
-  waiting: ['invite-link', 'copy-button', 'sound-toggle'],
-  join: ['join-room-code', 'name-input', 'join-button', 'sound-toggle'],
+  waiting: ['invite-link', 'copy-button', 'waiting-settings', 'sound-toggle'],
+  join: ['join-room-code', 'join-settings', 'name-input', 'join-button', 'sound-toggle'],
   table: [
     'match-score',
     'players',
@@ -72,7 +79,7 @@ export interface LayoutViolation {
 
 /**
  * spec-13 §4.4 `checkLayout`: (1) нет горизонтального скролла (UI4); (2) каждый видимый
- * button / текстовый input / `.turn-seconds-option` в `main` — не ниже 44 px (UI3);
+ * button / текстовый input / `.lobby-option` (варианты настроек комнаты) в `main` — не ниже 44 px (UI3);
  * (3) каждый видимый элемент из `keyTestIds` целиком по горизонтали внутри вьюпорта (UI4).
  * `prefix*` в `keyTestIds` — все элементы с testid, начинающимся на `prefix`.
  * Возвращает список нарушений; ожидается `[]`.
@@ -91,7 +98,7 @@ export async function checkLayout(page: Page, keyTestIds: string[]): Promise<Lay
       el.dataset.testid ?? `${el.tagName.toLowerCase()}.${el.className || '?'}`;
 
     const interactive = document.querySelectorAll<HTMLElement>(
-      'main button, main input[type="text"], main input:not([type]), main .turn-seconds-option',
+      'main button, main input[type="text"], main input:not([type]), main .lobby-option',
     );
     for (const el of interactive) {
       if (!visible(el)) continue;
@@ -121,16 +128,24 @@ export async function checkLayout(page: Page, keyTestIds: string[]): Promise<Lay
 export interface CreateGameOptions {
   /** spec-11: выбрать `turn-seconds-<N>` перед созданием; нет — значение по умолчанию (60 с). */
   turnSeconds?: number;
+  /** spec-14: выбрать `match-target-choice-<N>`; нет — значение по умолчанию. */
+  matchTarget?: number;
+  /** spec-14: выбрать `hand-size-choice-<N>`; нет — 7. */
+  handSize?: number;
 }
 
 /** Вкладка A: «Создать игру» → экран ожидания; возвращает ссылку-приглашение. */
 export async function createGame(
   page: Page,
   name: string,
-  { turnSeconds }: CreateGameOptions = {},
+  { turnSeconds, matchTarget, handSize }: CreateGameOptions = {},
 ): Promise<string> {
   await page.goto('/');
   await expect(page.getByTestId('connection-status')).toHaveText('connected', TIMEOUT);
+  if (matchTarget !== undefined) {
+    await page.getByTestId(`match-target-choice-${matchTarget}`).check();
+  }
+  if (handSize !== undefined) await page.getByTestId(`hand-size-choice-${handSize}`).check();
   if (turnSeconds !== undefined) await page.getByTestId(`turn-seconds-${turnSeconds}`).check();
   await page.getByTestId('name-input').fill(name);
   await page.getByTestId('create-button').click();
@@ -220,6 +235,8 @@ export async function startGame(
     reducedMotion,
     soundOff,
     turnSeconds,
+    matchTarget,
+    handSize,
     names = ['Аня', 'Боб'],
   }: Pick<PlayerOptions, 'viewport' | 'reducedMotion' | 'soundOff'> &
     CreateGameOptions & {
@@ -237,7 +254,7 @@ export async function startGame(
     reducedMotion,
     soundOff,
   });
-  const link = await createGame(a, names[0], { turnSeconds });
+  const link = await createGame(a, names[0], { turnSeconds, matchTarget, handSize });
   await joinByLink(b, link, names[1]);
   for (const page of [a, b]) {
     await expect(page.getByTestId('game-screen')).toBeVisible(TIMEOUT);

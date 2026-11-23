@@ -55,6 +55,7 @@ test('E6: a third player cannot join a full room', async ({ browser }) => {
 });
 
 test('E7: a link to a missing room shows the bad-link screen', async ({ page }) => {
-  await joinByLink(page, '/?room=ZZZZZZ', 'Вика');
+  // spec-14 S7: room:info распознаёт мёртвую ссылку сразу, до ввода имени.
+  await page.goto('/?room=ZZZZZZ');
   await expect(page.getByTestId('bad-link-screen')).toBeVisible(TIMEOUT);
 });
