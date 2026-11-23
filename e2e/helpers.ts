@@ -10,10 +10,20 @@ import {
 export const TIMEOUT = { timeout: 10_000 };
 const INVITE_RE = /\/\?room=[A-HJ-NP-Z2-9]{6}$/;
 
+export interface CreateGameOptions {
+  /** spec-11: выбрать `turn-seconds-<N>` перед созданием; нет — значение по умолчанию (60 с). */
+  turnSeconds?: number;
+}
+
 /** Вкладка A: «Создать игру» → экран ожидания; возвращает ссылку-приглашение. */
-export async function createGame(page: Page, name: string): Promise<string> {
+export async function createGame(
+  page: Page,
+  name: string,
+  { turnSeconds }: CreateGameOptions = {},
+): Promise<string> {
   await page.goto('/');
   await expect(page.getByTestId('connection-status')).toHaveText('connected', TIMEOUT);
+  if (turnSeconds !== undefined) await page.getByTestId(`turn-seconds-${turnSeconds}`).check();
   await page.getByTestId('name-input').fill(name);
   await page.getByTestId('create-button').click();
   await expect(page.getByTestId('waiting-screen')).toBeVisible(TIMEOUT);
@@ -92,11 +102,15 @@ export interface StartedGame {
 /** A и B — в разных контекстах — встречаются в комнате; обе вкладки на столе. */
 export async function startGame(
   browser: Browser,
-  { viewport, reducedMotion }: Pick<PlayerOptions, 'viewport' | 'reducedMotion'> = {},
+  {
+    viewport,
+    reducedMotion,
+    turnSeconds,
+  }: Pick<PlayerOptions, 'viewport' | 'reducedMotion'> & CreateGameOptions = {},
 ): Promise<StartedGame> {
   const { context: ctxA, page: a } = await newPlayer(browser, { viewport, reducedMotion });
   const { context: ctxB, page: b } = await newPlayer(browser, { viewport, reducedMotion });
-  const link = await createGame(a, 'Аня');
+  const link = await createGame(a, 'Аня', { turnSeconds });
   await joinByLink(b, link, 'Боб');
   for (const page of [a, b]) {
     await expect(page.getByTestId('game-screen')).toBeVisible(TIMEOUT);
