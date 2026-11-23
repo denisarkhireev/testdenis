@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { loadName } from '../storage';
 import { isValidName, NAME_MAX_LENGTH } from '../useLobby';
 
@@ -26,6 +26,12 @@ export function NameForm({
 }: NameFormProps) {
   const [name, setName] = useState(loadName);
   const enabled = canSubmit && isValidName(name);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Фокус без прокрутки: на узком экране поле может быть ниже первого экрана (spec-17 — группа
+  // «Игроки» на главной), а шапка с кнопкой звука должна остаться видимой.
+  useEffect(() => {
+    inputRef.current?.focus({ preventScroll: true });
+  }, []);
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -37,10 +43,10 @@ export function NameForm({
       <label>
         Ваше имя
         <input
+          ref={inputRef}
           data-testid="name-input"
           value={name}
           maxLength={NAME_MAX_LENGTH}
-          autoFocus
           autoComplete="nickname"
           onChange={(event) => setName(event.target.value)}
         />
