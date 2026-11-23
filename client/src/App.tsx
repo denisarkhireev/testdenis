@@ -22,7 +22,7 @@ export interface AppProps {
 
 export function App({ socket: socketProp, soundPlayer }: AppProps) {
   const [socket] = useState<ClientSocket>(() => socketProp ?? createSocket());
-  const { status, publicUrl } = useConnectionStatus(socket);
+  const { status, publicUrl, turnSecondsOptions } = useConnectionStatus(socket);
 
   return (
     <SoundProvider player={soundPlayer}>
@@ -37,7 +37,12 @@ export function App({ socket: socketProp, soundPlayer }: AppProps) {
           <SoundToggle />
         </header>
         <p data-testid="connection-status">{STATUS_TEXT[status]}</p>
-        <Lobby socket={socket} status={status} publicUrl={publicUrl} />
+        <Lobby
+          socket={socket}
+          status={status}
+          publicUrl={publicUrl}
+          turnSecondsOptions={turnSecondsOptions}
+        />
       </main>
     </SoundProvider>
   );

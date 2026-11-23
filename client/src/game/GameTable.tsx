@@ -12,6 +12,7 @@ import { canDraw, canPass } from './moves';
 import { OpponentHand } from './OpponentHand';
 import { MatchScore } from './MatchScore';
 import { RoundSummary } from './RoundSummary';
+import { TurnTimer } from './TurnTimer';
 import { useGameTable } from './useGameTable';
 import './game.css';
 
@@ -34,6 +35,9 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
   const opponentName = room.players.find((player) => player.seat !== game.you)?.name ?? '';
   const myTurn = game.currentPlayer === game.you;
   const finished = game.status === 'finished' && game.result !== null;
+  // spec-11: ровно один отсчёт — у игрока, чей ход.
+  const turnTimer = finished ? null : (room.turnTimer ?? null);
+  const timerMine = turnTimer !== null && turnTimer.seat === game.you;
   const canContinue =
     status === 'connected' && !table.pending && match !== null && !match.ready[game.you];
 
@@ -80,7 +84,7 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
 
   return (
     <div className="game-table" ref={tableRef}>
-      {match && <MatchScore match={match} players={room.players} />}
+      {match && <MatchScore match={match} players={room.players} turnSeconds={room.turnSeconds} />}
 
       {!finished && (
         <p
@@ -95,6 +99,11 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
 
       {/* После конца раунда обе руки показываются лицом в итогах, рубашки не нужны. */}
       {!finished && <OpponentHand count={game.opponentHandCount} />}
+      {turnTimer && !timerMine && (
+        <div className="turn-timer-row turn-timer-row--opponent">
+          <TurnTimer timer={turnTimer} />
+        </div>
+      )}
 
       <BoardView
         board={game.board}
@@ -139,6 +148,12 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
               {table.error ?? ''}
             </p>
           </div>
+
+          {turnTimer && timerMine && (
+            <div className="turn-timer-row turn-timer-row--mine">
+              <TurnTimer timer={turnTimer} />
+            </div>
+          )}
 
           <HandView
             hand={game.hand}

@@ -18,6 +18,8 @@ function roomState(patch: Partial<RoomStatePayload> = {}): RoomStatePayload {
     players: [{ seat: 0, name: 'Аня', connected: true, reconnectRemainingMs: null }],
     game: null,
     match: null,
+    turnSeconds: 60,
+    turnTimer: null,
     ...patch,
   };
 }
@@ -139,7 +141,7 @@ describe('Lobby', () => {
     fireEvent.click(byId('create-button'));
     expect(byId('create-button')).toBeDisabled();
     expect(fake.emitWithAck).toHaveBeenCalledTimes(1);
-    expect(fake.emitWithAck).toHaveBeenCalledWith('room:create', { name: 'Аня' });
+    expect(fake.emitWithAck).toHaveBeenCalledWith('room:create', { name: 'Аня', turnSeconds: 60 });
 
     await act(async () => ack.resolve({ ok: true, roomId: 'ABC234', seat: 0, playerToken: 't' }));
     fake.serverEmit('room:state', roomState());

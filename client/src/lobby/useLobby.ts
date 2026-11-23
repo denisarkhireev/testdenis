@@ -77,7 +77,8 @@ function initLobbyState(): LobbyState {
 
 export interface Lobby {
   state: LobbyState;
-  create(name: string): Promise<void>;
+  /** spec-11: `turnSeconds` — время на ход, с (0 — выкл). */
+  create(name: string, turnSeconds: number): Promise<void>;
   join(name: string): Promise<void>;
   goHome(): void;
 }
@@ -197,7 +198,8 @@ export function useLobby(socket: ClientSocket, status: ConnectionStatus): Lobby 
   );
 
   const create = useCallback(
-    (name: string) => submit('create', name, (n) => createRoom(socket, { name: n })),
+    (name: string, turnSeconds: number) =>
+      submit('create', name, (n) => createRoom(socket, { name: n, turnSeconds })),
     [submit, socket],
   );
 

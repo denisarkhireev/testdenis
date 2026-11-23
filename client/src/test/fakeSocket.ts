@@ -46,6 +46,7 @@ export type FakeSocket = ReturnType<typeof createFakeSocket>['fake'];
 export const hello = (protocolVersion: number = PROTOCOL_VERSION) => ({
   protocolVersion,
   serverTime: new Date().toISOString(),
+  turnSecondsOptions: [0, 30, 60],
 });
 
 /** Промис, которым тест управляет вручную (ack «в полёте»). */

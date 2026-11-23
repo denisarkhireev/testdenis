@@ -16,9 +16,11 @@ export interface LobbyProps {
   status: ConnectionStatus;
   /** spec-8 D9: база ссылки-приглашения из `server:hello`; нет — origin страницы. */
   publicUrl?: string;
+  /** spec-11: варианты времени на ход из `server:hello`; нет — TURN_SECONDS_OPTIONS. */
+  turnSecondsOptions?: number[];
 }
 
-export function Lobby({ socket, status, publicUrl }: LobbyProps) {
+export function Lobby({ socket, status, publicUrl, turnSecondsOptions }: LobbyProps) {
   const { state, create, join, goHome } = useLobby(socket, status);
   const canSubmit = status === 'connected' && state.pending === null;
 
@@ -52,7 +54,8 @@ export function Lobby({ socket, status, publicUrl }: LobbyProps) {
         <HomeScreen
           canSubmit={canSubmit}
           error={state.error}
-          onCreate={(name) => void create(name)}
+          turnSecondsOptions={turnSecondsOptions}
+          onCreate={(name, turnSeconds) => void create(name, turnSeconds)}
         />
       );
   }

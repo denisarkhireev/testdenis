@@ -5,6 +5,7 @@
 const SESSIONS_KEY = 'domino:sessions';
 const LEGACY_SESSION_KEY = 'domino:session';
 const NAME_KEY = 'domino:name';
+const TURN_SECONDS_KEY = 'domino:turnSeconds';
 export const MAX_SESSIONS = 10;
 
 export interface Session {
@@ -105,5 +106,25 @@ export function saveName(name: string): void {
     localStorage.setItem(NAME_KEY, name);
   } catch {
     // имя — только подсказка
+  }
+}
+
+/** spec-11: последнее выбранное время на ход, с; null — нет или не число. */
+export function loadTurnSeconds(): number | null {
+  try {
+    const raw = localStorage.getItem(TURN_SECONDS_KEY);
+    if (raw === null) return null;
+    const value = Number(raw);
+    return Number.isInteger(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveTurnSeconds(turnSeconds: number): void {
+  try {
+    localStorage.setItem(TURN_SECONDS_KEY, String(turnSeconds));
+  } catch {
+    // выбор — только подсказка на следующий раз
   }
 }

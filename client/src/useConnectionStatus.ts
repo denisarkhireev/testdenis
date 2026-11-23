@@ -12,17 +12,25 @@ export interface ConnectionInfo {
   status: ConnectionStatus;
   /** spec-8 D9: публичный origin из последнего `server:hello` (если сервер его прислал). */
   publicUrl: string | undefined;
+  /** spec-11: варианты времени на ход из последнего `server:hello`; до него — undefined. */
+  turnSecondsOptions: number[] | undefined;
 }
 
 export function useConnectionStatus(socket: ClientSocket): ConnectionInfo {
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [publicUrl, setPublicUrl] = useState<string | undefined>(undefined);
+  const [turnSecondsOptions, setTurnSecondsOptions] = useState<number[] | undefined>(undefined);
 
   useEffect(() => {
     const onHello = (payload: ServerHelloPayload) => {
       if (payload.protocolVersion === PROTOCOL_VERSION) {
         setStatus('connected');
         setPublicUrl(payload.publicUrl || undefined);
+        setTurnSecondsOptions(
+          Array.isArray(payload.turnSecondsOptions) && payload.turnSecondsOptions.length > 0
+            ? payload.turnSecondsOptions
+            : undefined,
+        );
       } else {
         console.error('Protocol version mismatch');
         setStatus('disconnected');
@@ -46,5 +54,5 @@ export function useConnectionStatus(socket: ClientSocket): ConnectionInfo {
     };
   }, [socket]);
 
-  return { status, publicUrl };
+  return { status, publicUrl, turnSecondsOptions };
 }

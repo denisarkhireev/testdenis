@@ -54,6 +54,8 @@ export function makeRoom(
     ],
     game: view,
     match: makeMatch(),
+    turnSeconds: 0,
+    turnTimer: null,
     ...overrides,
   };
 }

@@ -26,3 +26,21 @@
   flex: 1;
   min-width: 0;
 }
+
+/* spec-11: выбор времени на ход */
+.turn-seconds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+}
+
+.turn-seconds-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+}
