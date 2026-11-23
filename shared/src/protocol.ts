@@ -6,6 +6,7 @@
  * - ошибки действий возвращаются только через ack (`{ ok: false, error }`);
  * - при несовместимом изменении контракта увеличивать `PROTOCOL_VERSION`.
  */
+import type { ReactionId } from './reactions';
 import type { MatchState, Move, MoveError, PlayerIndex, PlayerView } from './rules';
 
 export const PROTOCOL_VERSION = 1;
@@ -124,10 +125,29 @@ export interface GameMovePayload {
 /** «Следующий раунд» / «Реванш»: `{}`, лишние поля игнорируются. */
 export type GameReadyPayload = Record<string, never>;
 
+/** C→S: отправить реакцию из фиксированного набора (spec-12). Только id, никакого текста. */
+export interface GameReactPayload {
+  /** На проводе — любая строка; сервер проверяет её по REACTION_IDS (RX3). */
+  reactionId: ReactionId;
+}
+
+/** S→C: реакция игрока места `seat`; приходит обоим, включая отправителя (RX6). */
+export interface RoomReactionPayload {
+  seat: PlayerIndex;
+  reactionId: ReactionId;
+  /** RX7: монотонный номер, ключ для перезапуска облачка. */
+  seq: number;
+}
+
+export type ReactionErrorCode =
+  'INVALID_PAYLOAD' | 'UNKNOWN_REACTION' | 'NOT_IN_ROOM' | 'GAME_NOT_STARTED' | 'TOO_FREQUENT';
+
 export interface ServerToClientEvents {
   'server:hello': (payload: ServerHelloPayload) => void;
   'room:state': (payload: RoomStatePayload) => void;
   'room:closed': (payload: RoomClosedPayload) => void;
+  /** spec-12: эфемерная реакция; room:state при этом не шлётся (RX8). */
+  'room:reaction': (payload: RoomReactionPayload) => void;
 }
 
 export interface ClientToServerEvents {
@@ -150,6 +170,10 @@ export interface ClientToServerEvents {
   'game:ready': (
     payload: GameReadyPayload,
     ack: (res: AckResult<object, GameErrorCode>) => void,
+  ) => void;
+  'game:react': (
+    payload: GameReactPayload,
+    ack: (res: AckResult<object, ReactionErrorCode>) => void,
   ) => void;
 }
 
