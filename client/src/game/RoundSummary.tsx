@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   tileKey,
   type MatchView,
@@ -18,6 +19,10 @@ export interface RoundSummaryProps {
   /** Кнопка «Следующий раунд»/«Реванш» активна (связь есть, не ждём ack, ещё не нажата). */
   canContinue: boolean;
   onContinue: () => void;
+  /** spec-13 UI9: облачко реакции соперника — внутри его руки, рядом с подписью. */
+  opponentBubble?: ReactNode;
+  /** spec-13 UI9: своё облачко — внутри своей руки. */
+  mineBubble?: ReactNode;
 }
 
 function playerName(players: RoomPlayer[], seat: PlayerIndex): string {
@@ -44,17 +49,20 @@ function SummaryHand({
   name,
   tiles,
   points,
+  bubble,
 }: {
   seat: PlayerIndex;
   name: string;
   tiles: readonly Tile[];
   points: number;
+  bubble?: ReactNode;
 }) {
   return (
     <div className="summary-hand" data-testid={`summary-hand-${seat}`}>
       <p className="summary-hand-label">
         {name}: <span data-testid={`summary-hand-points-${seat}`}>{points}</span> очк.
       </p>
+      {bubble}
       <div className="summary-hand-tiles">
         {tiles.length === 0 ? (
           <span className="summary-hand-empty">пусто</span>
@@ -80,6 +88,8 @@ export function RoundSummary({
   error,
   canContinue,
   onContinue,
+  opponentBubble,
+  mineBubble,
 }: RoundSummaryProps) {
   const you = game.you;
   const opponent: PlayerIndex = you === 0 ? 1 : 0;
@@ -104,6 +114,7 @@ export function RoundSummary({
             name={playerName(players, seat)}
             tiles={handOf(seat)}
             points={result.handPoints[seat]}
+            bubble={seat === you ? mineBubble : opponentBubble}
           />
         ))}
       </div>
@@ -113,7 +124,7 @@ export function RoundSummary({
           {match.winner === you
             ? 'Вы выиграли матч!'
             : `Матч выиграл ${playerName(players, match.winner!)}`}
-          {` Счёт ${match.scores[0]} : ${match.scores[1]}`}
+          {` · Счёт ${match.scores[0]} : ${match.scores[1]}`}
         </p>
       )}
 

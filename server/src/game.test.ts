@@ -65,7 +65,7 @@ function expectConfidential(payload: RoomStatePayload, truth: RoundState, tokens
 }
 
 describe('game loop', () => {
-  const ctx = useTestServer({ roundSeed: () => SEED, reconnectGraceMs: 300 });
+  const ctx = useTestServer({ roundSeed: () => SEED, reconnectTimeoutMs: 300 });
 
   it('G1: initial hands and turn match a local startRound with the same seed', async () => {
     const { start } = await createPlayingRoom(ctx);

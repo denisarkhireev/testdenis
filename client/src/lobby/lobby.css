@@ -7,8 +7,23 @@
 
 .lobby-form label {
   display: flex;
+  flex: 1 1 12rem;
   flex-direction: column;
   gap: 0.25rem;
+  min-width: 0;
+}
+
+/* spec-13 UI3/UI4: поле сжимается, кнопки — 44 px. */
+.lobby-form input {
+  width: 100%;
+  min-width: 0;
+}
+
+.lobby-form button,
+.lobby-invite button,
+.home-button {
+  min-height: 44px;
+  padding: 0 1rem;
 }
 
 .lobby-error {
@@ -25,4 +40,39 @@
 .lobby-invite input {
   flex: 1;
   min-width: 0;
+}
+
+/* spec-13 UI4: на узком экране ссылка над кнопкой, кнопка на всю ширину. */
+@media (max-width: 480px) {
+  .lobby-invite {
+    flex-direction: column;
+  }
+
+  .lobby-invite button {
+    width: 100%;
+  }
+}
+
+/* spec-13 UI4: код комнаты в заголовке переносится. */
+h2 code {
+  overflow-wrap: anywhere;
+}
+
+/* spec-11: выбор времени на ход */
+.turn-seconds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+}
+
+.turn-seconds-option {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
 }
