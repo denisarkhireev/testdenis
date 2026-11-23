@@ -268,3 +268,11 @@ export async function playRoundToEnd(a: Page, b: Page, maxSteps = 200): Promise<
   }
   throw new Error(`round did not finish in ${maxSteps} steps`);
 }
+
+/** spec-12: открыть панель 💬 (если закрыта) и нажать реакцию `reaction-<id>`. */
+export async function sendReaction(page: Page, id: string): Promise<void> {
+  if (!(await page.getByTestId('reaction-panel').isVisible())) {
+    await page.getByTestId('reaction-toggle').click();
+  }
+  await page.getByTestId(`reaction-${id}`).click();
+}

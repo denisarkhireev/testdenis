@@ -5,8 +5,9 @@
   display: contents;
 }
 
-.reaction-toggle,
-.reaction-button {
+/* Специфичнее `.controls button` (min-height: 40px). */
+.reactions .reaction-toggle,
+.reactions .reaction-button {
   min-width: 44px;
   min-height: 44px;
   font: inherit;
