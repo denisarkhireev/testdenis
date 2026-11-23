@@ -7,7 +7,8 @@
  * - при несовместимом изменении контракта увеличивать `PROTOCOL_VERSION`.
  */
 import type { ReactionId } from './reactions';
-import type { MatchState, Move, MoveError, PlayerIndex, PlayerView } from './rules';
+import { VARIANT_IDS } from './rules';
+import type { MatchState, Move, MoveError, PlayerIndex, PlayerView, VariantId } from './rules';
 
 export const PROTOCOL_VERSION = 1;
 
@@ -40,12 +41,17 @@ export const MATCH_TARGET_OPTIONS: readonly number[] = [51, 101, 151];
 export const HAND_SIZE_OPTIONS: readonly number[] = [5, 6, 7];
 export const DEFAULT_HAND_SIZE = 7;
 
+/** spec-16 K8: варианты правил для экрана создания. */
+export const VARIANT_OPTIONS: readonly VariantId[] = VARIANT_IDS;
+
 /** spec-14 S1: настройки комнаты; задаются в room:create и не меняются до закрытия комнаты. */
 export interface RoomSettings {
   matchTarget: number;
   handSize: number;
   /** spec-11 T1 */
   turnSeconds: number;
+  /** spec-16 K7: вариант правил. */
+  variant: VariantId;
 }
 
 /** Таймер текущего хода глазами игрока (spec-11 T2–T10). */
@@ -93,6 +99,8 @@ export interface RoomStatePayload {
   matchTarget: number;
   /** spec-14 S8: размер руки комнаты. */
   handSize: number;
+  /** spec-16 K7: вариант правил комнаты, во всех фазах. */
+  variant: VariantId;
   /** spec-11: null — таймер не идёт (T3). */
   turnTimer: TurnTimerView | null;
 }
@@ -144,6 +152,8 @@ export interface RoomCreatePayload {
   handSize?: number;
   /** spec-15 B2: нет — 'human'; не из Opponent — INVALID_PAYLOAD. */
   opponent?: Opponent;
+  /** spec-16 K8: нет — 'classic'; не из VARIANT_OPTIONS — INVALID_PAYLOAD. */
+  variant?: VariantId;
 }
 
 /** spec-14 S7: C→S, предпросмотр настроек комнаты до входа. */

@@ -1,8 +1,9 @@
 import { canPlace, boardEnds, placeTile } from './board';
 import { deal, HAND_SIZE, shuffle } from './deck';
-import { resolveRound } from './scoring';
 import { compareOpening, createDoubleSix, MAX_PIP, sameTile, tileKey, TILE_COUNT } from './tiles';
 import { createRng } from './rng';
+import { classicVariant } from './variants/classic';
+import type { RulesVariant } from './variants/types';
 import type {
   ApplyResult,
   End,
@@ -129,9 +130,9 @@ function isFish(state: RoundState): boolean {
   );
 }
 
-function finishIfFish(state: RoundState): RoundState {
+function finishIfFish(state: RoundState, variant: RulesVariant): RoundState {
   if (!isFish(state)) return state;
-  return { ...state, status: 'finished', result: resolveRound('fish', state.hands) };
+  return { ...state, status: 'finished', result: variant.resolveRound('fish', state.hands) };
 }
 
 /** Все допустимые ходы текущего игрока; [] если раунд окончен. */
@@ -149,7 +150,13 @@ function fail(error: MoveError): ApplyResult {
   return { ok: false, error };
 }
 
-function applyPlay(state: RoundState, player: PlayerIndex, tile: Tile, end: End): ApplyResult {
+function applyPlay(
+  state: RoundState,
+  player: PlayerIndex,
+  tile: Tile,
+  end: End,
+  variant: RulesVariant,
+): ApplyResult {
   const hand = state.hands[player];
   const index = hand.findIndex((t) => sameTile(t, tile));
   if (index === -1) return fail('TILE_NOT_IN_HAND');
@@ -166,43 +173,49 @@ function applyPlay(state: RoundState, player: PlayerIndex, tile: Tile, end: End)
   if (newHand.length === 0) {
     return {
       ok: true,
-      state: { ...next, status: 'finished', result: resolveRound('domino', hands, player) },
+      state: { ...next, status: 'finished', result: variant.resolveRound('domino', hands, player) },
     };
   }
-  const afterFish = finishIfFish(next);
+  const afterFish = finishIfFish(next, variant);
   if (afterFish.status === 'finished') return { ok: true, state: afterFish };
   return { ok: true, state: { ...next, currentPlayer: opponent(player) } };
 }
 
-function applyDraw(state: RoundState, player: PlayerIndex): ApplyResult {
+function applyDraw(state: RoundState, player: PlayerIndex, variant: RulesVariant): ApplyResult {
   if (hasPlay(state.board, state.hands[player])) return fail('MUST_PLAY');
   const [drawn, ...boneyard] = state.boneyard;
   if (!drawn) return fail('BONEYARD_EMPTY');
   const newHand = [...state.hands[player], drawn];
   const hands: [Tile[], Tile[]] =
     player === 0 ? [newHand, state.hands[1]] : [state.hands[0], newHand];
-  return { ok: true, state: finishIfFish({ ...state, hands, boneyard }) };
+  return { ok: true, state: finishIfFish({ ...state, hands, boneyard }, variant) };
 }
 
-function applyPass(state: RoundState, player: PlayerIndex): ApplyResult {
+function applyPass(state: RoundState, player: PlayerIndex, variant: RulesVariant): ApplyResult {
   if (hasPlay(state.board, state.hands[player])) return fail('MUST_PLAY');
   if (state.boneyard.length > 0) return fail('BONEYARD_NOT_EMPTY');
-  return { ok: true, state: finishIfFish({ ...state, currentPlayer: opponent(player) }) };
+  return { ok: true, state: finishIfFish({ ...state, currentPlayer: opponent(player) }, variant) };
 }
 
 /**
  * Проверяет и применяет ход (R4–R14). Не бросает исключений на игровых ошибках —
  * возвращает `{ ok: false, error }`. Входное состояние не мутируется.
+ * spec-16: `variant` определяет итог раунда (по умолчанию — классика); ходы одинаковы (K1).
  */
-export function applyMove(state: RoundState, player: PlayerIndex, move: Move): ApplyResult {
+export function applyMove(
+  state: RoundState,
+  player: PlayerIndex,
+  move: Move,
+  variant: RulesVariant = classicVariant,
+): ApplyResult {
   if (state.status === 'finished') return fail('ROUND_FINISHED');
   if (player !== state.currentPlayer) return fail('NOT_YOUR_TURN');
   switch (move.type) {
     case 'play':
-      return applyPlay(state, player, move.tile, move.end);
+      return applyPlay(state, player, move.tile, move.end, variant);
     case 'draw':
-      return applyDraw(state, player);
+      return applyDraw(state, player, variant);
     case 'pass':
-      return applyPass(state, player);
+      return applyPass(state, player, variant);
   }
 }

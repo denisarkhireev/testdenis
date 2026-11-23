@@ -24,3 +24,12 @@ export { toPlayerView } from './view';
 export type { PlayerView } from './view';
 export { MATCH_TARGET, createMatch, forfeitMatch, nextRoundNumber, recordRound } from './match';
 export type { MatchState } from './match';
+export {
+  classicVariant,
+  DEFAULT_VARIANT,
+  getVariant,
+  kozelVariant,
+  roundScorer,
+  VARIANT_IDS,
+} from './variants';
+export type { RulesVariant, VariantId } from './variants';

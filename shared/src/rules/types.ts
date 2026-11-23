@@ -21,12 +21,14 @@ export type RoundEndReason = 'domino' | 'fish';
 
 export interface RoundResult {
   reason: RoundEndReason;
-  /** null — ничья (только при 'fish'). */
+  /** null — ничья (только при 'fish'). В «Козле» — тоже тот, кто вышел / у кого меньше (spec-16 K2, K3). */
   winner: PlayerIndex | null;
-  /** Очки победителю; 0 при ничьей. */
+  /** Очки раунда: классика — победителю, «Козёл» — scorer'у. 0 при ничьей. */
   points: number;
   /** Очки рук игроков 0 и 1 на момент конца раунда. */
   handPoints: [number, number];
+  /** spec-16: кому записаны points. Нет поля ⇒ winner (классика). «Козёл» заполняет всегда (null при K4). */
+  scorer?: PlayerIndex | null;
 }
 
 export interface RoundState {
