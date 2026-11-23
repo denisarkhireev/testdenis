@@ -18,6 +18,7 @@ import {
   isObject,
   parseMove,
   parseName,
+  parseOpponent,
   parseOption,
   parseReactionId,
   parseRoomId,
@@ -52,12 +53,13 @@ export function toRoomState(
     players: ([0, 1] as const).flatMap((seat) => {
       const state = room.seats[seat];
       if (!state) return [];
-      const connected = state.socketId !== null;
+      // spec-15 B8: бот всегда «подключён».
+      const connected = state.bot || state.socketId !== null;
       const reconnectRemainingMs =
         !connected && state.reconnectDeadline !== null
           ? Math.max(0, state.reconnectDeadline - now)
           : null;
-      return [{ seat, name: state.name, connected, reconnectRemainingMs }];
+      return [{ seat, name: state.name, connected, reconnectRemainingMs, bot: state.bot }];
     }),
     game: room.round ? toPlayerView(room.round, you) : null,
     match: room.match ? { ...room.match, ready: [room.ready[0], room.ready[1]] } : null,
@@ -168,21 +170,26 @@ export function registerRoomHandlers(io: GameServer, rooms: RoomManager): void {
           rooms.defaultMatchTarget,
         );
         const handSize = parseOption(payload.handSize, HAND_SIZE_OPTIONS, DEFAULT_HAND_SIZE);
-        if (!turnSeconds.ok || !matchTarget.ok || !handSize.ok) {
+        const opponent = parseOpponent(payload.opponent);
+        if (!turnSeconds.ok || !matchTarget.ok || !handSize.ok || !opponent.ok) {
           return ack({ ok: false, error: 'INVALID_PAYLOAD' });
         }
 
-        const result = rooms.create(socket.id, name.value, {
+        const vsBot = opponent.value === 'bot';
+        const settings = {
           turnSeconds: turnSeconds.value,
           matchTarget: matchTarget.value,
           handSize: handSize.value,
-        });
+        };
+        const result = vsBot
+          ? rooms.createWithBot(socket.id, name.value, settings)
+          : rooms.create(socket.id, name.value, settings);
         if (!result.ok) return ack({ ok: false, error: result.error });
         const { room, seat, token } = result.value;
         socket.data.roomId = room.id;
         socket.data.seat = seat;
         console.info(
-          `room ${room.id} created (target ${room.matchTarget}, hand ${room.handSize}, turn ${room.turnSeconds}s)`,
+          `room ${room.id} created${vsBot ? ' vs bot' : ''} (target ${room.matchTarget}, hand ${room.handSize}, turn ${room.turnSeconds}s)`,
         );
         ack({ ok: true, roomId: room.id, seat, playerToken: token });
         broadcastState(io, room);

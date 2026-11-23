@@ -11,7 +11,15 @@ import {
   type Tile,
 } from '@domino/shared';
 import { toRoomState } from './handlers';
-import { RoomManager, roomPhase, type Room, type RoomManagerOptions } from './RoomManager';
+import {
+  BOT_SEAT,
+  defaultBotDelayMs,
+  RoomManager,
+  roomPhase,
+  type BotDelayKind,
+  type Room,
+  type RoomManagerOptions,
+} from './RoomManager';
 
 const SEED = 42;
 const GRACE = 1000;
@@ -158,6 +166,7 @@ describe('RoomManager: reconnect timeout (spec-9)', () => {
       name: 'B',
       connected: false,
       reconnectRemainingMs: GRACE,
+      bot: false,
     });
     expect(view.players[0]!.reconnectRemainingMs).toBeNull();
     vi.advanceTimersByTime(100);
@@ -903,5 +912,297 @@ describe('RoomManager: room settings (spec-14)', () => {
     ]);
     expect(round.currentPlayer).toBe(1);
     errors.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// spec-15: игра против бота
+// ---------------------------------------------------------------------------
+
+const BOT_DELAY = 1000;
+const BOT_DRAW_DELAY = 400;
+
+/** Раунд из фикстуры с ходом бота (место 1) по умолчанию. */
+function botFixture(
+  hand0: RoundState['hands'][0],
+  hand1: RoundState['hands'][1],
+  boneyard: RoundState['boneyard'],
+  board: RoundState['board'] = [{ tile: [5, 6], left: 5, right: 6 }],
+  currentPlayer: PlayerIndex = BOT_SEAT,
+): () => RoundState {
+  const base = fixture(hand0, hand1, boneyard, board);
+  return () => ({ ...base(), currentPlayer });
+}
+
+describe('RoomManager: bot (spec-15)', () => {
+  let onBotMove: ReturnType<typeof vi.fn<(room: Room) => void>>;
+  let botDelayMs: ReturnType<typeof vi.fn<(kind: BotDelayKind) => number>>;
+
+  beforeEach(() => {
+    onBotMove = vi.fn<(room: Room) => void>();
+    botDelayMs = vi.fn((kind: BotDelayKind) => (kind === 'turn' ? BOT_DELAY : BOT_DRAW_DELAY));
+  });
+
+  function botRooms(extra: Partial<RoomManagerOptions> = {}): RoomManager {
+    rooms.closeAll();
+    rooms = makeRooms({ botDelayMs, onBotMove, ...extra });
+    return rooms;
+  }
+
+  function withBot(settings: Parameters<RoomManager['createWithBot']>[2] = {}) {
+    const created = rooms.createWithBot('s0', 'A', settings);
+    if (!created.ok) throw new Error('createWithBot failed');
+    return created.value;
+  }
+
+  /** Бот открывает раунд дублем [6,6] на пустом столе. */
+  const botOpens = botFixture(
+    [
+      [1, 2],
+      [2, 3],
+    ],
+    [
+      [6, 6],
+      [0, 1],
+    ],
+    [[4, 4]],
+    [],
+  );
+
+  it('B2a: createWithBot → bot in seat 1, match and round started', () => {
+    botRooms();
+    const { room, seat, token } = withBot({ matchTarget: 51, handSize: 5, turnSeconds: 0 });
+    expect(seat).toBe(0);
+    expect(token).toBe(room.seats[0].token);
+    expect(room.seats[1]).toMatchObject({ name: 'Бот', bot: true, socketId: null });
+    expect(room.seats[0].bot).toBe(false);
+    expect(room.round).not.toBeNull();
+    expect(room.round!.hands[0]).toHaveLength(5);
+    expect(room.match).toMatchObject({ target: 51, scores: [0, 0], roundNumber: 1 });
+    expect(roomPhase(room)).toBe('playing');
+    expect(toRoomState(room, 0).players[1]).toEqual({
+      seat: 1,
+      name: 'Бот',
+      connected: true,
+      reconnectRemainingMs: null,
+      bot: true,
+    });
+  });
+
+  it('B2b: join into a bot room → ROOM_FULL', () => {
+    botRooms();
+    const { room } = withBot();
+    expect(rooms.join('s1', room.id, 'B')).toEqual({ ok: false, error: 'ROOM_FULL' });
+  });
+
+  it('B3a: the bot moves exactly after the delay and notifies once', () => {
+    botRooms({ startRound: botOpens });
+    const { room } = withBot({ turnSeconds: 0 });
+    vi.advanceTimersByTime(BOT_DELAY - 1);
+    expect(room.round!.board).toHaveLength(0);
+    expect(onBotMove).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(room.round!.board).toEqual([{ tile: [6, 6], left: 6, right: 6 }]);
+    expect(room.round!.currentPlayer).toBe(0);
+    expect(onBotMove).toHaveBeenCalledExactlyOnceWith(room);
+    expect(room.botTimer).toBeNull();
+  });
+
+  it('B3b: human move → bot answers after the delay, then it is the human turn again', () => {
+    botRooms({
+      startRound: botFixture(
+        [
+          [3, 4],
+          [0, 0],
+        ],
+        [
+          [1, 6],
+          [2, 2],
+        ],
+        [[5, 5]],
+        [{ tile: [1, 4], left: 4, right: 1 }],
+        0,
+      ),
+    });
+    const { room } = withBot({ turnSeconds: 0 });
+    expect(room.botTimer).toBeNull();
+    expect(rooms.move(room.id, 0, { type: 'play', tile: [3, 4], end: 'left' }).ok).toBe(true);
+    expect(room.botTimer).not.toBeNull();
+    // Человек не может сходить за бота.
+    expect(rooms.move(room.id, 0, { type: 'draw' })).toEqual({
+      ok: false,
+      error: 'NOT_YOUR_TURN',
+    });
+    vi.advanceTimersByTime(BOT_DELAY);
+    expect(room.round!.board.at(-1)).toEqual({ tile: [1, 6], left: 1, right: 6 });
+    expect(room.round!.currentPlayer).toBe(0);
+    expect(room.botTimer).toBeNull();
+    expect(onBotMove).toHaveBeenCalledTimes(1);
+  });
+
+  it('B4a: default delays — turn in [800, 1500], draw 400', () => {
+    for (let i = 0; i < 1000; i++) {
+      const ms = defaultBotDelayMs('turn');
+      expect(Number.isInteger(ms)).toBe(true);
+      expect(ms).toBeGreaterThanOrEqual(800);
+      expect(ms).toBeLessThanOrEqual(1500);
+    }
+    expect(defaultBotDelayMs('draw')).toBe(400);
+  });
+
+  it('B4b: draws one by one (turn delay, then 400 ms each), then plays', () => {
+    botRooms({
+      startRound: botFixture(
+        [[2, 2]],
+        [
+          [0, 0],
+          [1, 1],
+        ],
+        [
+          [2, 3],
+          [4, 4],
+          [3, 5],
+        ],
+      ),
+    });
+    const { room } = withBot({ turnSeconds: 0 });
+    expect(botDelayMs).toHaveBeenLastCalledWith('turn');
+    vi.advanceTimersByTime(BOT_DELAY);
+    expect(room.round!.boneyard).toHaveLength(2);
+    expect(botDelayMs).toHaveBeenLastCalledWith('draw');
+    vi.advanceTimersByTime(BOT_DRAW_DELAY);
+    expect(room.round!.boneyard).toHaveLength(1);
+    vi.advanceTimersByTime(BOT_DRAW_DELAY);
+    expect(room.round!.boneyard).toHaveLength(0);
+    expect(room.round!.board).toHaveLength(1);
+    vi.advanceTimersByTime(BOT_DRAW_DELAY);
+    expect(room.round!.board).toHaveLength(2);
+    expect(room.round!.board[0]).toEqual({ tile: [3, 5], left: 3, right: 5 });
+    expect(room.round!.currentPlayer).toBe(0);
+    expect(onBotMove).toHaveBeenCalledTimes(4);
+    expect(room.botTimer).toBeNull();
+  });
+
+  it('B4c: nothing fits and the boneyard is empty → pass after the delay', () => {
+    botRooms({ startRound: botFixture([[5, 5]], [[0, 0]], []) });
+    const { room } = withBot({ turnSeconds: 0 });
+    vi.advanceTimersByTime(BOT_DELAY - 1);
+    expect(room.round!.currentPlayer).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(room.round!.currentPlayer).toBe(0);
+    expect(room.round!.board).toHaveLength(1);
+    expect(onBotMove).toHaveBeenCalledTimes(1);
+  });
+
+  it('B5a: the bot waits while the human is offline; full delay after rejoin', () => {
+    botRooms({ startRound: botOpens, reconnectTimeoutMs: 60_000 });
+    const { room, token } = withBot({ turnSeconds: 0 });
+    vi.advanceTimersByTime(BOT_DELAY - 100);
+    rooms.disconnect(room.id, 0, 's0');
+    expect(room.botTimer).toBeNull();
+    vi.advanceTimersByTime(10_000);
+    expect(room.round!.board).toHaveLength(0);
+    expect(rooms.rejoin('s0b', room.id, token).ok).toBe(true);
+    vi.advanceTimersByTime(BOT_DELAY - 1);
+    expect(room.round!.board).toHaveLength(0);
+    vi.advanceTimersByTime(1);
+    expect(room.round!.board).toHaveLength(1);
+  });
+
+  it('B5b: the human does not come back → room closed, no forfeit', () => {
+    botRooms({ startRound: botOpens });
+    const { room } = withBot();
+    rooms.disconnect(room.id, 0, 's0');
+    vi.advanceTimersByTime(GRACE);
+    expect(onClose).toHaveBeenCalledExactlyOnceWith(room, 'player_left');
+    expect(onForfeit).not.toHaveBeenCalled();
+    expect(rooms.get(room.id)).toBeUndefined();
+    expect(room.botTimer).toBeNull();
+  });
+
+  it('B6a: the turn timer runs only on the human turns', () => {
+    botRooms({ startRound: botOpens });
+    const { room } = withBot({ turnSeconds: 30 });
+    expect(room.turnTimer).toBeNull();
+    vi.advanceTimersByTime(BOT_DELAY);
+    expect(room.round!.currentPlayer).toBe(0);
+    expect(timerView(room)).toEqual({ seat: 0, remainingMs: 30_000, paused: false });
+  });
+
+  it('B7a: round ended by the human or by the bot → bot ready, one click starts the next round', () => {
+    // Человек выкладывает последнюю кость.
+    botRooms({
+      startRound: botFixture(
+        [[4, 4]],
+        [
+          [6, 6],
+          [2, 2],
+        ],
+        [[5, 5]],
+        [{ tile: [1, 4], left: 4, right: 1 }],
+        0,
+      ),
+    });
+    const first = withBot({ turnSeconds: 0 }).room;
+    expect(rooms.move(first.id, 0, { type: 'play', tile: [4, 4], end: 'left' }).ok).toBe(true);
+    expect(roomPhase(first)).toBe('finished');
+    expect(first.ready).toEqual([false, true]);
+    expect(toRoomState(first, 0).match!.ready).toEqual([false, true]);
+    const next = rooms.ready(first.id, 0);
+    expect(next.ok && next.value.started).toBe('round');
+
+    // Бот выкладывает последнюю кость.
+    botRooms({
+      startRound: botFixture([[2, 2]], [[1, 1]], [[5, 5]], [{ tile: [1, 4], left: 4, right: 1 }]),
+    });
+    const second = withBot({ turnSeconds: 0 }).room;
+    vi.advanceTimersByTime(BOT_DELAY);
+    expect(roomPhase(second)).toBe('finished');
+    expect(second.round!.result).toMatchObject({ reason: 'domino', winner: 1 });
+    expect(second.ready).toEqual([false, true]);
+    const again = rooms.ready(second.id, 0);
+    expect(again.ok && again.value.started).toBe('round');
+    expect(second.match!.roundNumber).toBe(2);
+  });
+
+  it('B7b: match over → bot ready; one click starts a rematch 0:0 and the bot plays again', () => {
+    const humanFinishes = botFixture(
+      [[4, 4]],
+      [
+        [6, 6],
+        [2, 2],
+      ],
+      [[5, 5]],
+      [{ tile: [1, 4], left: 4, right: 1 }],
+      0,
+    );
+    let rounds = 0;
+    // Первый раунд — человек сразу выигрывает матч; реванш открывает бот.
+    botRooms({ startRound: () => (rounds++ === 0 ? humanFinishes() : botOpens()) });
+    const { room } = withBot({ turnSeconds: 0, matchTarget: 10 });
+    expect(rooms.move(room.id, 0, { type: 'play', tile: [4, 4], end: 'left' }).ok).toBe(true);
+    expect(room.match!.winner).toBe(0);
+    expect(room.ready).toEqual([false, true]);
+    expect(room.botTimer).toBeNull();
+    const rematch = rooms.ready(room.id, 0);
+    expect(rematch.ok && rematch.value.started).toBe('match');
+    expect(room.match).toMatchObject({ scores: [0, 0], roundNumber: 1, winner: null });
+    expect(room.ready).toEqual([false, false]);
+    expect(room.botTimer).not.toBeNull();
+    vi.advanceTimersByTime(BOT_DELAY);
+    expect(room.round!.board).toEqual([{ tile: [6, 6], left: 6, right: 6 }]);
+  });
+
+  it('R1: a room of two humans never schedules the bot', () => {
+    botRooms({ startRound: hasMove });
+    const { room } = setup(30);
+    expect(room.seats.every((state) => state?.bot === false)).toBe(true);
+    expect(room.botTimer).toBeNull();
+    expect(rooms.move(room.id, 0, { type: 'play', tile: [3, 4], end: 'left' }).ok).toBe(true);
+    expect(room.botTimer).toBeNull();
+    vi.advanceTimersByTime(BOT_DELAY * 5);
+    expect(onBotMove).not.toHaveBeenCalled();
+    expect(room.round!.currentPlayer).toBe(1);
+    expect(timerView(room)).toMatchObject({ seat: 1, paused: false });
   });
 });

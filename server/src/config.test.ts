@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   loadConfig,
+  parseBotDelay,
   parsePublicUrl,
   parseReconnectTimeout,
   parseTurnTimerTestSeconds,
@@ -95,5 +96,21 @@ describe('parseTurnTimerTestSeconds (spec-11)', () => {
     }
     expect(loadConfig({ TURN_TIMER_TEST_SECONDS: '3' }).turnTimerTestSeconds).toBe(3);
     expect(loadConfig({}).turnTimerTestSeconds).toBeUndefined();
+  });
+});
+
+describe('parseBotDelay (spec-15 B4)', () => {
+  it('C1: empty/unset → undefined; integers 0…5000 ok; anything else throws', () => {
+    expect(parseBotDelay(undefined)).toBeUndefined();
+    expect(parseBotDelay('')).toBeUndefined();
+    expect(parseBotDelay('  ')).toBeUndefined();
+    expect(parseBotDelay('0')).toBe(0);
+    expect(parseBotDelay('300')).toBe(300);
+    expect(parseBotDelay('5000')).toBe(5000);
+    for (const bad of ['-1', '5001', '1.5', 'abc']) {
+      expect(() => parseBotDelay(bad)).toThrow(/BOT_DELAY_MS/);
+    }
+    expect(loadConfig({ BOT_DELAY_MS: '300' }).botDelayMs).toBe(300);
+    expect(loadConfig({}).botDelayMs).toBeUndefined();
   });
 });

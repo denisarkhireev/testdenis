@@ -1,7 +1,7 @@
 import { startServer } from './app';
 import { loadConfig } from './config';
 
-// Невалидные PUBLIC_URL / MATCH_TARGET / RECONNECT_TIMEOUT / STATIC_DIR / TURN_TIMER_TEST_SECONDS — throw здесь, процесс падает на старте.
+// Невалидные PUBLIC_URL / MATCH_TARGET / RECONNECT_TIMEOUT / STATIC_DIR / TURN_TIMER_TEST_SECONDS / BOT_DELAY_MS — throw здесь, процесс падает на старте.
 const config = loadConfig(process.env);
 
 const server = await startServer(config);

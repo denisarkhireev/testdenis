@@ -19,7 +19,7 @@ import {
   notifyRoomClosed,
   registerRoomHandlers,
 } from './rooms/handlers';
-import { RoomManager } from './rooms/RoomManager';
+import { defaultBotDelayMs, RoomManager } from './rooms/RoomManager';
 import { createStaticHandler, type StaticHandler } from './static';
 
 export const DEFAULT_RECONNECT_TIMEOUT_MS = 120_000;
@@ -45,6 +45,8 @@ export interface StartServerOptions {
   turnTimerTestSeconds?: number;
   /** Часы RoomManager (дедлайны, кулдаун реакций spec-12). По умолчанию Date.now; только для тестов. */
   now?: () => number;
+  /** spec-15 B4: фиксированная задержка действий бота, мс (только тесты/e2e, BOT_DELAY_MS). */
+  botDelayMs?: number;
 }
 
 export interface RunningServer {
@@ -87,6 +89,8 @@ export function startServer(opts: StartServerOptions): Promise<RunningServer> {
     onForfeit: (room, loser) => notifyForfeit(io, room, loser),
     allowedTurnSeconds,
     onAutoMove: (room) => broadcastState(io, room),
+    botDelayMs: (kind) => opts.botDelayMs ?? defaultBotDelayMs(kind),
+    onBotMove: (room) => broadcastState(io, room),
   });
 
   io.on('connection', (socket) => {

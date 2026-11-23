@@ -1,5 +1,7 @@
+import { randomInt } from 'node:crypto';
 import {
   applyMove,
+  BOT_NAME,
   createMatch,
   DEFAULT_HAND_SIZE,
   DEFAULT_TURN_SECONDS,
@@ -10,6 +12,7 @@ import {
   isReactionId,
   nextRoundNumber,
   pickAutoMove,
+  pickBotMove,
   REACTION_COOLDOWN_MS,
   recordRound,
   startRound,
@@ -25,6 +28,7 @@ import {
   type RoomReactionPayload,
   type RoomSettings,
   type RoundState,
+  toPlayerView,
 } from '@domino/shared';
 import { generateRoomId, generateToken } from './ids';
 
@@ -41,6 +45,24 @@ export interface SeatState {
   reconnectDeadline: number | null;
   /** spec-12 RX4, RX9: когда (по `now()`) место последний раз отправило принятую реакцию. */
   lastReactionAt: number | null;
+  /** spec-15: место занимает бот (socketId всегда null, токен никому не отдаётся). */
+  bot: boolean;
+}
+
+/** spec-15 B2: бот всегда на месте 1. */
+export const BOT_SEAT = 1 as const;
+/** spec-15 B4: задержка каждого следующего добора подряд в ходу бота, мс. */
+export const BOT_DRAW_DELAY_MS = 400;
+/** spec-15 B4: задержка первого действия хода бота, мс, [min, max] включительно. */
+export const BOT_TURN_DELAY_MS = [800, 1500] as const;
+
+export type BotDelayKind = 'turn' | 'draw';
+
+/** spec-15 B4: `turn` — случайное целое 800…1500 мс, `draw` — 400 мс. */
+export function defaultBotDelayMs(kind: BotDelayKind): number {
+  return kind === 'turn'
+    ? randomInt(BOT_TURN_DELAY_MS[0], BOT_TURN_DELAY_MS[1] + 1)
+    : BOT_DRAW_DELAY_MS;
 }
 
 /** spec-11: таймер текущего хода (T2–T10). */
@@ -72,6 +94,8 @@ export interface Room {
   handSize: number;
   /** spec-11: null — таймер не идёт (T3). */
   turnTimer: TurnTimerState | null;
+  /** spec-15 B3: запланированное действие бота; null — бот не ждёт хода. */
+  botTimer: NodeJS.Timeout | null;
 }
 
 export interface RoomManagerOptions {
@@ -95,6 +119,10 @@ export interface RoomManagerOptions {
   allowedTurnSeconds?: readonly number[];
   /** spec-11 T6: сделан авто-ход по таймеру (комната ещё в менеджере). */
   onAutoMove: (room: Room) => void;
+  /** spec-15 B4: задержка действия бота, мс. По умолчанию `defaultBotDelayMs`. */
+  botDelayMs?: (kind: BotDelayKind) => number;
+  /** spec-15 B3: бот сделал действие (комната ещё в менеджере). */
+  onBotMove?: (room: Room) => void;
 }
 
 export function roomPhase(room: Room): RoomPhase {
@@ -162,6 +190,7 @@ export class RoomManager {
           reconnectTimer: null,
           reconnectDeadline: null,
           lastReactionAt: null,
+          bot: false,
         },
         null,
       ],
@@ -172,6 +201,7 @@ export class RoomManager {
       matchTarget,
       handSize,
       turnTimer: null,
+      botTimer: null,
     };
     this.rooms.set(id, room);
     return ok({ room, seat: 0, token });
@@ -204,13 +234,40 @@ export class RoomManager {
       reconnectTimer: null,
       reconnectDeadline: null,
       lastReactionAt: null,
+      bot: false,
     };
-    // K4: waiting → playing синхронно при успешном входе; M1: вместе с первым раундом — матч.
+    this.startMatch(room);
+    return ok({ room, seat: 1, token });
+  }
+
+  /** spec-15 B2: комната, где место 1 сразу занимает бот; матч стартует, как после `join`. */
+  createWithBot(
+    socketId: string,
+    name: string,
+    settings: Partial<RoomSettings> = {},
+  ): Result<{ room: Room; seat: 0; token: string }, RoomErrorCode> {
+    const created = this.create(socketId, name, settings);
+    if (!created.ok) return created;
+    const { room } = created.value;
+    room.seats[BOT_SEAT] = {
+      name: BOT_NAME,
+      token: generateToken(),
+      socketId: null,
+      reconnectTimer: null,
+      reconnectDeadline: null,
+      lastReactionAt: null,
+      bot: true,
+    };
+    this.startMatch(room);
+    return created;
+  }
+
+  /** K4: waiting → playing синхронно при занятии второго места; M1: вместе с первым раундом — матч. */
+  private startMatch(room: Room): void {
     room.match = createMatch(room.matchTarget); // S6
     room.ready = [false, false];
     room.round = this.newRound(room);
-    this.syncTurnTimer(room);
-    return ok({ room, seat: 1, token });
+    this.syncTimers(room);
   }
 
   rejoin(
@@ -227,7 +284,7 @@ export class RoomManager {
     state.reconnectDeadline = null; // RC3
     const previous = state.socketId;
     state.socketId = socketId;
-    this.syncTurnTimer(room); // T7: продолжение с замороженного остатка
+    this.syncTimers(room); // T7: продолжение с замороженного остатка; B5: бот — с полной задержкой
     return ok({
       room,
       seat,
@@ -241,7 +298,7 @@ export class RoomManager {
     if (room.round === null) return err('GAME_NOT_STARTED');
     const result = this.apply(room, seat, move);
     if (!result.ok) return result;
-    this.syncTurnTimer(room);
+    this.syncTimers(room);
     return ok({ room });
   }
 
@@ -266,7 +323,7 @@ export class RoomManager {
     room.match = rematch ? createMatch(room.matchTarget) : nextRoundNumber(room.match);
     room.round = this.newRound(room);
     room.ready = [false, false];
-    this.syncTurnTimer(room);
+    this.syncTimers(room);
     return ok({ room, changed: true, started: rematch ? 'match' : 'round' });
   }
 
@@ -307,7 +364,7 @@ export class RoomManager {
       state.reconnectTimer = null;
       this.expire(room, seat);
     }, this.opts.reconnectTimeoutMs);
-    this.syncTurnTimer(room); // T7: пауза
+    this.syncTimers(room); // T7: пауза; B5: бот ждёт
     return room;
   }
 
@@ -337,6 +394,8 @@ export class RoomManager {
     // M2, M3: очки раунда — ровно один раз, в момент перехода playing → finished.
     if (previous.status === 'playing' && result.state.status === 'finished' && room.match) {
       room.match = recordRound(room.match, result.state.result!);
+      // spec-15 B7: бот сразу готов к следующему раунду/реваншу.
+      if (room.seats[BOT_SEAT]?.bot) room.ready[BOT_SEAT] = true;
     }
     return ok(null);
   }
@@ -356,7 +415,8 @@ export class RoomManager {
       round.status !== 'playing' ||
       match === null ||
       match.winner !== null ||
-      match.forfeit != null
+      match.forfeit != null ||
+      room.seats[round.currentPlayer]?.bot // spec-15 B6: таймер только на ходах человека
     ) {
       room.turnTimer = null;
       return;
@@ -377,7 +437,10 @@ export class RoomManager {
       remaining = room.turnSeconds * 1000;
     }
 
-    const paused = room.seats.some((state) => state === null || state.socketId === null);
+    // spec-15 B6: бот не считается «отключённым».
+    const paused = room.seats.some(
+      (state) => state === null || (!state.bot && state.socketId === null),
+    );
     room.turnTimer = paused
       ? { seat, seq, deadline: null, pausedRemainingMs: remaining, handle: null }
       : {
@@ -423,15 +486,71 @@ export class RoomManager {
     }
     console.info(`room ${room.id} auto-move (seat ${seat}, ${moves} moves)`);
     if (failed) room.turnTimer = null; // перезапуск с полным лимитом вместо мгновенного повтора
-    this.syncTurnTimer(room);
+    this.syncTimers(room);
     this.opts.onAutoMove(room);
+  }
+
+  /** Таймер хода (spec-11) и действие бота (spec-15) — после каждого изменения комнаты. */
+  private syncTimers(room: Room): void {
+    this.syncTurnTimer(room);
+    this.syncBot(room);
+  }
+
+  /** spec-15 B3: должен ли бот сейчас действовать. */
+  private botShouldAct(room: Room): boolean {
+    const { round, match } = room;
+    const human = room.seats[0];
+    return (
+      room.seats[BOT_SEAT]?.bot === true &&
+      round !== null &&
+      round.status === 'playing' &&
+      round.currentPlayer === BOT_SEAT &&
+      match !== null &&
+      match.winner === null &&
+      match.forfeit == null &&
+      human.socketId !== null // B5: пока человек отключён — бот ждёт
+    );
+  }
+
+  /** spec-15 B3–B5: (пере)планировать одно действие бота или снять таймер. */
+  private syncBot(room: Room, kind: BotDelayKind = 'turn'): void {
+    if (room.botTimer) clearTimeout(room.botTimer);
+    room.botTimer = null;
+    if (!this.botShouldAct(room)) return;
+    const delay = (this.opts.botDelayMs ?? defaultBotDelayMs)(kind);
+    room.botTimer = setTimeout(() => this.onBotTurn(room), delay);
+  }
+
+  /** spec-15 B3, B10: бот делает одно действие по своему PlayerView. */
+  private onBotTurn(room: Room): void {
+    room.botTimer = null;
+    if (this.rooms.get(room.id) !== room || !this.botShouldAct(room)) return;
+    const move = pickBotMove(toPlayerView(room.round!, BOT_SEAT));
+    const result = move ? this.apply(room, BOT_SEAT, move) : err('ROUND_FINISHED');
+    if (!move || !result.ok) {
+      // B10: невозможно по построению; не роняем сервер и не перепланируем.
+      console.error(`room ${room.id} bot move failed: ${result.ok ? 'no move' : result.error}`);
+      return;
+    }
+    console.info(`room ${room.id} bot move (${move.type})`);
+    this.syncTurnTimer(room);
+    const drawAgain = move.type === 'draw' && room.round!.currentPlayer === BOT_SEAT;
+    this.syncBot(room, drawAgain ? 'draw' : 'turn');
+    this.opts.onBotMove?.(room);
   }
 
   /** Истёк таймаут места `loser`: RC4/RC6 — закрыть комнату, RC5 — техническое поражение. */
   private expire(room: Room, loser: PlayerIndex): void {
     if (this.rooms.get(room.id) !== room) return;
     const opponent = room.seats[loser === 0 ? 1 : 0];
-    if (!opponent || !room.match || room.match.winner !== null || opponent.socketId === null) {
+    // spec-15 B5: с ботом — без техпоражения, некому показывать результат.
+    if (
+      !opponent ||
+      opponent.bot ||
+      !room.match ||
+      room.match.winner !== null ||
+      opponent.socketId === null
+    ) {
       this.close(room, 'player_left');
       return;
     }
@@ -453,6 +572,8 @@ export class RoomManager {
     for (const state of room.seats) if (state) this.clearTimer(state);
     if (room.turnTimer?.handle) clearTimeout(room.turnTimer.handle);
     room.turnTimer = null;
+    if (room.botTimer) clearTimeout(room.botTimer);
+    room.botTimer = null;
   }
 
   private clearTimer(state: SeatState): void {

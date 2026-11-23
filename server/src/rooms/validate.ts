@@ -1,4 +1,4 @@
-import type { Move, Pip, Tile } from '@domino/shared';
+import { OPPONENTS, type Move, type Opponent, type Pip, type Tile } from '@domino/shared';
 
 /** Результат runtime-валидации payload. */
 export type Parsed<T> = { ok: true; value: T } | { ok: false };
@@ -85,4 +85,10 @@ export const parseTurnSeconds = parseOption;
 /** spec-12 RX3: только «строка ли»; членство в REACTION_IDS проверяет RoomManager.react. */
 export function parseReactionId(value: unknown): Parsed<string> {
   return typeof value === 'string' ? ok(value) : fail;
+}
+
+/** spec-15 B2: нет поля — 'human'; иначе 'human' | 'bot', прочее — fail. */
+export function parseOpponent(value: unknown): Parsed<Opponent> {
+  if (value === undefined) return ok('human');
+  return OPPONENTS.includes(value as Opponent) ? ok(value as Opponent) : fail;
 }

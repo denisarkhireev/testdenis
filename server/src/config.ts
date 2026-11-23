@@ -19,6 +19,8 @@ export interface ServerConfig {
   staticDir?: string;
   /** TURN_TIMER_TEST_SECONDS (spec-11, только e2e): доп. значение времени на ход, с. */
   turnTimerTestSeconds?: number;
+  /** BOT_DELAY_MS (spec-15 B4, только тесты/e2e): фиксированная задержка действий бота, мс. */
+  botDelayMs?: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): ServerConfig {
@@ -31,6 +33,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): ServerConfig {
     publicUrl: parsePublicUrl(env.PUBLIC_URL),
     staticDir: parseStaticDir(env.STATIC_DIR),
     turnTimerTestSeconds: parseTurnTimerTestSeconds(env.TURN_TIMER_TEST_SECONDS),
+    botDelayMs: parseBotDelay(env.BOT_DELAY_MS),
   };
 }
 
@@ -65,6 +68,19 @@ export function parseTurnTimerTestSeconds(raw: string | undefined): number | und
     throw new Error(
       `TURN_TIMER_TEST_SECONDS must be an integer from 1 to 29 (seconds), got "${raw}"`,
     );
+  }
+  return value;
+}
+
+/**
+ * spec-15 B4: BOT_DELAY_MS — целое 0…5000 мс; заменяет обе задержки бота (только тесты/e2e).
+ * Не задана — undefined (в проде: 800…1500 мс на ход, 400 мс на добор подряд).
+ */
+export function parseBotDelay(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0 || value > 5000) {
+    throw new Error(`BOT_DELAY_MS must be an integer from 0 to 5000 (milliseconds), got "${raw}"`);
   }
   return value;
 }

@@ -30,7 +30,7 @@ describe('rooms', () => {
       roomId: ack.roomId,
       you: 0,
       phase: 'waiting',
-      players: [{ seat: 0, name: 'A', connected: true, reconnectRemainingMs: null }],
+      players: [{ seat: 0, name: 'A', connected: true, reconnectRemainingMs: null, bot: false }],
       game: null,
       match: null,
       turnSeconds: 60,

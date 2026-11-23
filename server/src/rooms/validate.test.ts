@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   parseMove,
   parseName,
+  parseOpponent,
   parseOption,
   parseReactionId,
   parseRoomId,
@@ -85,6 +86,15 @@ describe('validate', () => {
     }
     for (const bad of [4, 8, 6.5, '5']) {
       expect(parseOption(bad, [5, 6, 7], 7)).toEqual({ ok: false });
+    }
+  });
+
+  it('V1: parseOpponent — undefined → human; human/bot ok; anything else fails (spec-15)', () => {
+    expect(parseOpponent(undefined)).toEqual({ ok: true, value: 'human' });
+    expect(parseOpponent('human')).toEqual({ ok: true, value: 'human' });
+    expect(parseOpponent('bot')).toEqual({ ok: true, value: 'bot' });
+    for (const bad of ['Bot', 'robot', '', 1, null, {}, ['bot']]) {
+      expect(parseOpponent(bad)).toEqual({ ok: false });
     }
   });
 });
