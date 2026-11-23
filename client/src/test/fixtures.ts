@@ -77,3 +77,36 @@ export function makeBotRoom(
     ...overrides,
   });
 }
+
+/** spec-17: игроки стола 2×2 — команда 0: Аня (0) и Вера (2), команда 1: Боб (1) и Гена (3). */
+export const TEAM_NAMES = ['Аня', 'Боб', 'Вера', 'Гена'] as const;
+
+/** spec-17: вид 4 мест — по 7 костей, базара нет, ход `you = 0`, первый ход 6-6. */
+export function makeTeamView(partial: Partial<PlayerView> = {}): PlayerView {
+  return makeView({
+    opponentHandCount: 0,
+    boneyardCount: 0,
+    handCounts: [7, 7, 7, 7],
+    hands: null,
+    ...partial,
+  });
+}
+
+/** spec-17: `room:state` комнаты 2×2 (по умолчанию глазами места 0). */
+export function makeTeamRoom(
+  view: PlayerView | null = makeTeamView(),
+  overrides: Partial<RoomStatePayload> = {},
+): RoomStatePayload {
+  return makeRoom(view, {
+    mode: '2x2',
+    players: TEAM_NAMES.map((name, seat) => ({
+      seat: seat as 0 | 1 | 2 | 3,
+      name,
+      connected: true,
+      reconnectRemainingMs: null,
+      bot: false,
+    })),
+    match: makeMatch({ ready: [false, false, false, false] }),
+    ...overrides,
+  });
+}
