@@ -23,6 +23,7 @@ const room = (phase: RoomStatePayload['phase']): RoomStatePayload => ({
   turnSeconds: 60,
   matchTarget: 101,
   handSize: 7,
+  variant: 'classic',
   turnTimer: null,
 });
 

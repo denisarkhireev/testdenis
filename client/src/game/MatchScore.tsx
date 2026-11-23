@@ -1,4 +1,11 @@
-import { DEFAULT_HAND_SIZE, type MatchView, type RoomPlayer } from '@domino/shared';
+import {
+  DEFAULT_HAND_SIZE,
+  DEFAULT_VARIANT,
+  type MatchView,
+  type RoomPlayer,
+  type VariantId,
+} from '@domino/shared';
+import { variantLabel } from '../lobby/variant';
 
 export interface MatchScoreProps {
   match: MatchView;
@@ -7,6 +14,8 @@ export interface MatchScoreProps {
   turnSeconds?: number;
   /** spec-14 S8: размер руки; «по h костей» — только при h ≠ 7. */
   handSize?: number;
+  /** spec-16: вариант правил; показывается всегда, по умолчанию «Классика». */
+  variant?: VariantId;
 }
 
 /** spec-7 §4.3.1: табло матча «Аня 34 : 12 Боб · до 101 · Раунд 3» (место 0 : место 1). */
@@ -15,6 +24,7 @@ export function MatchScore({
   players,
   turnSeconds = 0,
   handSize = DEFAULT_HAND_SIZE,
+  variant = DEFAULT_VARIANT,
 }: MatchScoreProps) {
   const name = (seat: 0 | 1) => {
     const player = players.find((p) => p.seat === seat);
@@ -40,6 +50,9 @@ export function MatchScore({
       </span>
       {/* spec-13 UI7: разделитель « · » перед каждой частью рисует CSS. */}
       <span className="match-score-meta">
+        <span className="match-score-item" data-testid="variant-label">
+          {variantLabel(variant)}
+        </span>
         <span className="match-score-item">
           до <span data-testid="match-target">{match.target}</span>
         </span>

@@ -57,6 +57,7 @@ export function makeRoom(
     turnSeconds: 0,
     matchTarget: 101,
     handSize: 7,
+    variant: 'classic',
     turnTimer: null,
     ...overrides,
   };

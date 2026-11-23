@@ -81,3 +81,10 @@ h2 code {
 .room-settings {
   overflow-wrap: anywhere;
 }
+
+/* spec-16: подсказка под группой «Правила» */
+.lobby-hint {
+  margin: -0.4rem 0 0.75rem;
+  font-size: 0.85rem;
+  color: #555;
+}

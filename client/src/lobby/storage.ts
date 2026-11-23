@@ -1,3 +1,5 @@
+import { VARIANT_OPTIONS, type VariantId } from '@domino/shared';
+
 /**
  * spec-9 RC10: токены мест живут в localStorage браузера, по одному на комнату, — так место
  * держится за браузером, а не за вкладкой. Имя — тоже в localStorage, для удобства.
@@ -8,6 +10,7 @@ const NAME_KEY = 'domino:name';
 const TURN_SECONDS_KEY = 'domino:turnSeconds';
 const MATCH_TARGET_KEY = 'domino:matchTarget';
 const HAND_SIZE_KEY = 'domino:handSize';
+const VARIANT_KEY = 'domino:variant';
 export const MAX_SESSIONS = 10;
 
 export interface Session {
@@ -144,3 +147,21 @@ export const saveMatchTarget = (matchTarget: number): void =>
 /** spec-14: последний выбранный размер руки; null — нет или не число. */
 export const loadHandSize = (): number | null => loadInteger(HAND_SIZE_KEY);
 export const saveHandSize = (handSize: number): void => saveInteger(HAND_SIZE_KEY, handSize);
+
+/** spec-16: последний выбранный вариант правил; null — нет, не из VARIANT_OPTIONS или storage недоступен. */
+export function loadVariant(): VariantId | null {
+  try {
+    const raw = localStorage.getItem(VARIANT_KEY);
+    return raw !== null && VARIANT_OPTIONS.includes(raw as VariantId) ? (raw as VariantId) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveVariant(variant: VariantId): void {
+  try {
+    localStorage.setItem(VARIANT_KEY, variant);
+  } catch {
+    // выбор — только подсказка на следующий раз
+  }
+}

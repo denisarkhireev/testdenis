@@ -6,17 +6,23 @@ import {
   MATCH_TARGET,
   MATCH_TARGET_OPTIONS,
   TURN_SECONDS_OPTIONS,
+  DEFAULT_VARIANT,
+  VARIANT_OPTIONS,
   type Opponent,
   type RoomSettings,
+  type VariantId,
 } from '@domino/shared';
 import {
   loadHandSize,
   loadMatchTarget,
   loadTurnSeconds,
+  loadVariant,
   saveHandSize,
   saveMatchTarget,
   saveTurnSeconds,
+  saveVariant,
 } from '../storage';
+import { variantHint, variantLabel } from '../variant';
 import { NameForm } from './NameForm';
 
 export interface HomeScreenProps {
@@ -46,7 +52,11 @@ function targetLabel(target: number): string {
 }
 
 /** Сохранённый выбор, если он есть в списке; иначе значение по умолчанию (spec-11 §4.3, spec-14). */
-function initialChoice(options: readonly number[], saved: number | null, fallback: number): number {
+function initialChoice<T extends string | number>(
+  options: readonly T[],
+  saved: T | null,
+  fallback: T,
+): T {
   if (saved !== null && options.includes(saved)) return saved;
   return options.includes(fallback) ? fallback : (options[0] ?? fallback);
 }
@@ -55,25 +65,36 @@ function initialChoice(options: readonly number[], saved: number | null, fallbac
  * Выбор из списка, который может смениться (hello приходит позже): выбор, которого нет
  * в новом списке, сбрасывается на сохранённое/значение по умолчанию.
  */
-function useChoice(options: readonly number[], load: () => number | null, fallback: number) {
+function useChoice<T extends string | number>(
+  options: readonly T[],
+  load: () => T | null,
+  fallback: T,
+) {
   // null — игрок ещё не выбирал.
-  const [choice, setChoice] = useState<number | null>(null);
+  const [choice, setChoice] = useState<T | null>(null);
   const selected =
     choice !== null && options.includes(choice) ? choice : initialChoice(options, load(), fallback);
   return [selected, setChoice] as const;
 }
 
-interface ChoiceGroupProps {
-  /** testid группы; варианты — `<testId>-<N>`. */
+interface ChoiceGroupProps<T extends string | number> {
+  /** testid группы; варианты — `<testId>-<value>`. */
   testId: string;
   legend: string;
-  options: readonly number[];
-  selected: number;
-  label(value: number): string;
-  onChange(value: number): void;
+  options: readonly T[];
+  selected: T;
+  label(value: T): string;
+  onChange(value: T): void;
 }
 
-function ChoiceGroup({ testId, legend, options, selected, label, onChange }: ChoiceGroupProps) {
+function ChoiceGroup<T extends string | number>({
+  testId,
+  legend,
+  options,
+  selected,
+  label,
+  onChange,
+}: ChoiceGroupProps<T>) {
   return (
     <fieldset className="lobby-choice" data-testid={testId} role="radiogroup">
       <legend>{legend}</legend>
@@ -103,6 +124,7 @@ export function HomeScreen({
   handSizeOptions = HAND_SIZE_OPTIONS,
   onCreate,
 }: HomeScreenProps) {
+  const [variant, setVariant] = useChoice<VariantId>(VARIANT_OPTIONS, loadVariant, DEFAULT_VARIANT);
   const [matchTarget, setMatchTarget] = useChoice(
     matchTargetOptions,
     loadMatchTarget,
@@ -116,16 +138,28 @@ export function HomeScreen({
   );
 
   const handleCreate = (name: string, opponent: Opponent) => {
+    saveVariant(variant);
     saveMatchTarget(matchTarget);
     saveHandSize(handSize);
     saveTurnSeconds(turnSeconds);
-    onCreate(name, { matchTarget, handSize, turnSeconds }, opponent);
+    onCreate(name, { matchTarget, handSize, turnSeconds, variant }, opponent);
   };
 
   return (
     <section data-testid="home-screen">
       <h2>Новая игра</h2>
-      <ChoiceGroup
+      <ChoiceGroup<VariantId>
+        testId="variant-choice"
+        legend="Правила"
+        options={VARIANT_OPTIONS}
+        selected={variant}
+        label={variantLabel}
+        onChange={setVariant}
+      />
+      <p className="lobby-hint" data-testid="variant-hint">
+        {variantHint(variant)}
+      </p>
+      <ChoiceGroup<number>
         testId="match-target-choice"
         legend="Играем до"
         options={matchTargetOptions}
@@ -133,7 +167,7 @@ export function HomeScreen({
         label={targetLabel}
         onChange={setMatchTarget}
       />
-      <ChoiceGroup
+      <ChoiceGroup<number>
         testId="hand-size-choice"
         legend="Костей в руке"
         options={handSizeOptions}
@@ -141,7 +175,7 @@ export function HomeScreen({
         label={String}
         onChange={setHandSize}
       />
-      <ChoiceGroup
+      <ChoiceGroup<number>
         testId="turn-seconds"
         legend="Время на ход"
         options={turnSecondsOptions}

@@ -117,10 +117,15 @@ describe('MatchScore (spec-11, spec-13)', () => {
       <MatchScore match={match} players={players} turnSeconds={30} />,
     );
     const items = () => [...container.querySelectorAll('.match-score-item')];
-    expect(items().map((el) => el.textContent)).toEqual(['до 101', 'Раунд 3', 'ход 30 с']);
+    expect(items().map((el) => el.textContent)).toEqual([
+      'Классика',
+      'до 101',
+      'Раунд 3',
+      'ход 30 с',
+    ]);
     expect(byId('match-target').textContent).toBe('101');
     expect(byId('match-round').textContent).toBe('3');
     rerender(<MatchScore match={match} players={players} turnSeconds={0} />);
-    expect(items()).toHaveLength(2);
+    expect(items()).toHaveLength(3);
   });
 });

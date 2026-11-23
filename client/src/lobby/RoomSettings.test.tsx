@@ -64,6 +64,7 @@ describe('HomeScreen: room settings (spec-14)', () => {
       matchTarget: 51,
       handSize: 5,
       turnSeconds: 60,
+      variant: 'classic',
     });
     expect(localStorage.getItem('domino:matchTarget')).toBe('51');
     expect(localStorage.getItem('domino:handSize')).toBe('5');
@@ -171,6 +172,7 @@ describe('room settings in the waiting room and on the scoreboard (spec-14 S8)',
       turnSeconds: 30,
       matchTarget: 151,
       handSize: 6,
+      variant: 'classic',
       turnTimer: null,
     } satisfies RoomStatePayload);
     expect(byId('waiting-screen')).toBeInTheDocument();

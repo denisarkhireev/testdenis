@@ -102,6 +102,7 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
           players={room.players}
           turnSeconds={room.turnSeconds}
           handSize={room.handSize}
+          variant={room.variant}
         />
       )}
 
@@ -149,6 +150,7 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
             result={game.result!}
             match={match}
             players={room.players}
+            variant={room.variant}
             error={table.error}
             canContinue={canContinue}
             onContinue={table.ready}

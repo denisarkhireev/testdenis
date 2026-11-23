@@ -21,6 +21,7 @@ function roomState(patch: Partial<RoomStatePayload> = {}): RoomStatePayload {
     turnSeconds: 60,
     matchTarget: 101,
     handSize: 7,
+    variant: 'classic',
     turnTimer: null,
     ...patch,
   };
@@ -149,6 +150,7 @@ describe('Lobby', () => {
       turnSeconds: 60,
       matchTarget: 101,
       handSize: 7,
+      variant: 'classic',
     });
 
     await act(async () => ack.resolve({ ok: true, roomId: 'ABC234', seat: 0, playerToken: 't' }));

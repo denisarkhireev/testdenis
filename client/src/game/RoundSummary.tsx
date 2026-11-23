@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 import {
+  DEFAULT_VARIANT,
+  roundScorer,
   tileKey,
   type MatchView,
   type PlayerIndex,
@@ -7,6 +9,7 @@ import {
   type RoomPlayer,
   type RoundResult,
   type Tile,
+  type VariantId,
 } from '@domino/shared';
 import { TileFace } from './TileFace';
 
@@ -15,6 +18,8 @@ export interface RoundSummaryProps {
   result: RoundResult;
   match: MatchView | null;
   players: RoomPlayer[];
+  /** spec-16: вариант правил; при 'classic' (по умолчанию) тексты прежние. */
+  variant?: VariantId;
   error: string | null;
   /** Кнопка «Следующий раунд»/«Реванш» активна (связь есть, не ждём ack, ещё не нажата). */
   canContinue: boolean;
@@ -35,6 +40,31 @@ function roundTitle(result: RoundResult, you: PlayerIndex, opponentName: string)
   const reason = result.reason === 'domino' ? ' (домино)' : ' (рыба)';
   if (result.winner === you) return `Вы выиграли раунд: +${result.points}${reason}`;
   return `Раунд выиграл ${opponentName}: +${result.points}${reason}`;
+}
+
+/** spec-16 §4.3: заголовок итога раунда в «Козле» — кому записаны очки. */
+function kozelRoundTitle(result: RoundResult, you: PlayerIndex, opponentName: string): string {
+  const scorer = roundScorer(result);
+  if (scorer === null) return 'Рыба — ничья, очков никому';
+  const reason = result.reason === 'domino' ? ' (домино)' : ' (рыба)';
+  if (scorer === you) return `Очки записаны вам: +${result.points}${reason}`;
+  return `Очки записаны: ${opponentName} +${result.points}${reason}`;
+}
+
+/** Строка итога матча (без счёта): классика — spec-7, «Козёл» — spec-16 §4.3. */
+function matchTitle(
+  variant: VariantId,
+  winner: PlayerIndex,
+  you: PlayerIndex,
+  players: RoomPlayer[],
+): string {
+  if (variant === 'kozel') {
+    const goat: PlayerIndex = winner === 0 ? 1 : 0;
+    return goat === you
+      ? `Вы — козёл! Матч выиграл ${playerName(players, winner)}`
+      : `Вы выиграли матч! ${playerName(players, goat)} — козёл`;
+  }
+  return winner === you ? 'Вы выиграли матч!' : `Матч выиграл ${playerName(players, winner)}`;
 }
 
 function readyText(match: MatchView, you: PlayerIndex): string {
@@ -85,6 +115,7 @@ export function RoundSummary({
   result,
   match,
   players,
+  variant = DEFAULT_VARIANT,
   error,
   canContinue,
   onContinue,
@@ -100,7 +131,11 @@ export function RoundSummary({
   return (
     <section className="round-summary" data-testid="round-summary" aria-label="Итоги раунда">
       <p className="round-finished" data-testid="round-finished" role="status">
-        {roundTitle(result, you, playerName(players, opponent))}
+        {(variant === 'kozel' ? kozelRoundTitle : roundTitle)(
+          result,
+          you,
+          playerName(players, opponent),
+        )}
       </p>
       <p className="round-points">
         Очки за раунд: <strong data-testid="round-points">{result.points}</strong>
@@ -121,9 +156,7 @@ export function RoundSummary({
 
       {matchOver && (
         <p className="match-finished" data-testid="match-finished" role="status">
-          {match.winner === you
-            ? 'Вы выиграли матч!'
-            : `Матч выиграл ${playerName(players, match.winner!)}`}
+          {matchTitle(variant, match.winner!, you, players)}
           {` · Счёт ${match.scores[0]} : ${match.scores[1]}`}
         </p>
       )}

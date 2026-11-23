@@ -46,6 +46,7 @@ describe('HomeScreen: turn time choice (spec-11)', () => {
       turnSeconds: 30,
       matchTarget: 101,
       handSize: 7,
+      variant: 'classic',
     });
     expect(localStorage.getItem(KEY)).toBe('30');
   });
@@ -61,6 +62,7 @@ describe('HomeScreen: turn time choice (spec-11)', () => {
       turnSeconds: 3,
       matchTarget: 101,
       handSize: 7,
+      variant: 'classic',
     });
   });
 
@@ -86,6 +88,7 @@ describe('HomeScreen: turn time choice (spec-11)', () => {
       turnSeconds: 60,
       matchTarget: 101,
       handSize: 7,
+      variant: 'classic',
     });
   });
 });

@@ -65,6 +65,7 @@ describe('play against the bot (spec-15)', () => {
       handSize: 5,
       turnSeconds: 30,
       opponent: 'bot',
+      variant: 'classic',
     });
     expect(localStorage.getItem('domino:matchTarget')).toBe('51');
   });
@@ -80,6 +81,7 @@ describe('play against the bot (spec-15)', () => {
       matchTarget: 101,
       handSize: 7,
       turnSeconds: 60,
+      variant: 'classic',
     });
   });
 
