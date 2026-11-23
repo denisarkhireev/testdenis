@@ -3,10 +3,12 @@ import type { MatchView, RoomPlayer } from '@domino/shared';
 export interface MatchScoreProps {
   match: MatchView;
   players: RoomPlayer[];
+  /** spec-11: время на ход, с; 0 — подпись не показывается. */
+  turnSeconds?: number;
 }
 
 /** spec-7 §4.3.1: табло матча «Аня 34 : 12 Боб · до 101 · Раунд 3» (место 0 : место 1). */
-export function MatchScore({ match, players }: MatchScoreProps) {
+export function MatchScore({ match, players, turnSeconds = 0 }: MatchScoreProps) {
   const name = (seat: 0 | 1) => players.find((player) => player.seat === seat)?.name ?? '';
   return (
     <p className="match-score" data-testid="match-score">
@@ -20,6 +22,9 @@ export function MatchScore({ match, players }: MatchScoreProps) {
         <span data-testid="match-target">{match.target}</span>
         {' · Раунд '}
         <span data-testid="match-round">{match.roundNumber}</span>
+        {turnSeconds > 0 && (
+          <span data-testid="turn-seconds-label">{` · ход ${turnSeconds} с`}</span>
+        )}
       </span>
     </p>
   );

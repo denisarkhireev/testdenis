@@ -14,9 +14,13 @@ import './lobby.css';
 export interface LobbyProps {
   socket: ClientSocket;
   status: ConnectionStatus;
+  /** spec-8 D9: база ссылки-приглашения из `server:hello`; нет — origin страницы. */
+  publicUrl?: string;
+  /** spec-11: варианты времени на ход из `server:hello`; нет — TURN_SECONDS_OPTIONS. */
+  turnSecondsOptions?: number[];
 }
 
-export function Lobby({ socket, status }: LobbyProps) {
+export function Lobby({ socket, status, publicUrl, turnSecondsOptions }: LobbyProps) {
   const { state, create, join, goHome } = useLobby(socket, status);
   const canSubmit = status === 'connected' && state.pending === null;
 
@@ -24,12 +28,12 @@ export function Lobby({ socket, status }: LobbyProps) {
     case 'closed':
       return <ClosedScreen reason={state.closed!} onHome={goHome} />;
     case 'game':
-      return <GameScreen room={state.room!} socket={socket} status={status} />;
+      return <GameScreen room={state.room!} socket={socket} status={status} onHome={goHome} />;
     case 'waiting':
       return (
         <WaitingScreen
           roomId={state.room!.roomId}
-          inviteUrl={buildInviteUrl(window.location.origin, state.room!.roomId)}
+          inviteUrl={buildInviteUrl(publicUrl ?? window.location.origin, state.room!.roomId)}
         />
       );
     case 'restoring':
@@ -50,7 +54,8 @@ export function Lobby({ socket, status }: LobbyProps) {
         <HomeScreen
           canSubmit={canSubmit}
           error={state.error}
-          onCreate={(name) => void create(name)}
+          turnSecondsOptions={turnSecondsOptions}
+          onCreate={(name, turnSeconds) => void create(name, turnSeconds)}
         />
       );
   }

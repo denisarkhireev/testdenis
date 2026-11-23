@@ -19,7 +19,9 @@
     "test:e2e": "playwright test",
     "lint": "eslint . --max-warnings=0 && prettier --check .",
     "format": "prettier --write .",
-    "typecheck": "npm run typecheck --workspaces"
+    "typecheck": "npm run typecheck --workspaces",
+    "docker:build": "docker build -t domino .",
+    "docker:run": "docker run --rm -p 8080:8080 -e PUBLIC_URL=http://localhost:8080 domino"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

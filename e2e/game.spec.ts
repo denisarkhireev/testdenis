@@ -1,5 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-import { currentMover, playStep, readTable, startGame, TIMEOUT } from './helpers';
+import { expect, type Page } from '@playwright/test';
+import { currentMover, playStep, readTable, startGame, test, TIMEOUT } from './helpers';
 
 test.describe.configure({ timeout: 60_000 });
 
@@ -7,8 +7,8 @@ async function noHorizontalScroll(page: Page): Promise<boolean> {
   return page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 }
 
-test('E8: two players make several moves', async ({ context }) => {
-  const { a, b } = await startGame(context);
+test('E8: two players make several moves', async ({ browser }) => {
+  const { a, b } = await startGame(browser);
   const kinds: string[] = [];
 
   for (let actions = 0; actions < 40 && (await readTable(a)).board < 4; actions++) {
@@ -20,8 +20,8 @@ test('E8: two players make several moves', async ({ context }) => {
   expect(kinds.filter((kind) => kind === 'play').length).toBeGreaterThanOrEqual(4);
 });
 
-test('E9: the first move is the only highlighted tile', async ({ context }) => {
-  const { a, b } = await startGame(context);
+test('E9: the first move is the only highlighted tile', async ({ browser }) => {
+  const { a, b } = await startGame(browser);
   const { mover, other } = await currentMover(a, b);
 
   await expect(mover.getByTestId('turn-indicator')).toHaveText('Ваш ход');
@@ -43,8 +43,8 @@ for (const viewport of [
   { width: 375, height: 667 },
   { width: 360, height: 640 },
 ]) {
-  test(`E10: mobile width ${viewport.width}×${viewport.height}`, async ({ context }) => {
-    const { a, b } = await startGame(context, { viewport });
+  test(`E10: mobile width ${viewport.width}×${viewport.height}`, async ({ browser }) => {
+    const { a, b } = await startGame(browser, { viewport });
 
     const check = async () => {
       for (const page of [a, b]) {
@@ -68,8 +68,8 @@ for (const viewport of [
   });
 }
 
-test('E11: reload restores the same table', async ({ context }) => {
-  const { a, b } = await startGame(context);
+test('E11: reload restores the same table', async ({ browser }) => {
+  const { a, b } = await startGame(browser);
   await playStep(a, b);
   await playStep(a, b);
 

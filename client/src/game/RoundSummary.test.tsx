@@ -55,7 +55,6 @@ function readyCalls(fake: ReturnType<typeof createFakeSocket>['fake']) {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
-  sessionStorage.clear();
   localStorage.clear();
 });
 

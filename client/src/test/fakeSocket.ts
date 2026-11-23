@@ -23,6 +23,8 @@ export function createFakeSocket() {
     }),
     timeout: vi.fn((ms: number) => ({ ms, emitWithAck })),
     active: false,
+    /** Менеджер socket.io: `engine.close()` рвёт транспорт (RC15). */
+    io: { engine: { close: vi.fn() } },
     connect: vi.fn(() => {
       fake.active = true;
       return fake;
@@ -44,6 +46,7 @@ export type FakeSocket = ReturnType<typeof createFakeSocket>['fake'];
 export const hello = (protocolVersion: number = PROTOCOL_VERSION) => ({
   protocolVersion,
   serverTime: new Date().toISOString(),
+  turnSecondsOptions: [0, 30, 60],
 });
 
 /** Промис, которым тест управляет вручную (ack «в полёте»). */

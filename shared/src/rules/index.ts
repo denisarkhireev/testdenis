@@ -16,9 +16,10 @@ export { compareOpening, createDoubleSix, isDouble, sameTile, tileKey, tilePips 
 export { deal, shuffle } from './deck';
 export { boardEnds, canPlace, placeTile } from './board';
 export { applyMove, getLegalMoves, startRound } from './round';
+export { pickAutoMove } from './autoMove';
 export type { StartRoundOptions } from './round';
 export { handPoints } from './scoring';
 export { toPlayerView } from './view';
 export type { PlayerView } from './view';
-export { MATCH_TARGET, createMatch, nextRoundNumber, recordRound } from './match';
+export { MATCH_TARGET, createMatch, forfeitMatch, nextRoundNumber, recordRound } from './match';
 export type { MatchState } from './match';

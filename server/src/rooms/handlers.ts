@@ -1,4 +1,5 @@
 import {
+  DEFAULT_TURN_SECONDS,
   toPlayerView,
   type ClientToServerEvents,
   type InterServerEvents,
@@ -10,7 +11,14 @@ import {
 } from '@domino/shared';
 import type { Server, Socket } from 'socket.io';
 import { roomPhase, type Room, type RoomManager } from './RoomManager';
-import { isObject, parseMove, parseName, parseRoomId, parseToken } from './validate';
+import {
+  isObject,
+  parseMove,
+  parseName,
+  parseRoomId,
+  parseToken,
+  parseTurnSeconds,
+} from './validate';
 
 export type GameServer = Server<
   ClientToServerEvents,
@@ -22,18 +30,45 @@ type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServer
 type EventName = keyof ClientToServerEvents;
 type AckOf<E extends EventName> = Parameters<ClientToServerEvents[E]>[1];
 
-/** Вид комнаты для игрока `you` (K11): своя рука, у соперника — только количество. */
-export function toRoomState(room: Room, you: PlayerIndex): RoomStatePayload {
+/**
+ * Вид комнаты для игрока `you` (K11): своя рука, у соперника — только количество.
+ * RC8: у отключённого места — остаток ожидания на момент `now`.
+ * spec-11 T10: остаток таймера хода — тоже на момент `now`; на паузе — замороженный.
+ */
+export function toRoomState(
+  room: Room,
+  you: PlayerIndex,
+  now: number = Date.now(),
+): RoomStatePayload {
   return {
     roomId: room.id,
     you,
     phase: roomPhase(room),
     players: ([0, 1] as const).flatMap((seat) => {
       const state = room.seats[seat];
-      return state ? [{ seat, name: state.name, connected: state.socketId !== null }] : [];
+      if (!state) return [];
+      const connected = state.socketId !== null;
+      const reconnectRemainingMs =
+        !connected && state.reconnectDeadline !== null
+          ? Math.max(0, state.reconnectDeadline - now)
+          : null;
+      return [{ seat, name: state.name, connected, reconnectRemainingMs }];
     }),
     game: room.round ? toPlayerView(room.round, you) : null,
     match: room.match ? { ...room.match, ready: [room.ready[0], room.ready[1]] } : null,
+    turnSeconds: room.turnSeconds,
+    turnTimer: toTurnTimerView(room, now),
+  };
+}
+
+function toTurnTimerView(room: Room, now: number): RoomStatePayload['turnTimer'] {
+  const timer = room.turnTimer;
+  if (timer === null) return null;
+  const paused = timer.deadline === null;
+  return {
+    seat: timer.seat,
+    remainingMs: paused ? (timer.pausedRemainingMs ?? 0) : Math.max(0, timer.deadline! - now),
+    paused,
   };
 }
 
@@ -62,6 +97,19 @@ export function notifyRoomClosed(io: GameServer, room: Room, reason: RoomClosedR
     if (!socket) continue;
     socket.emit('room:closed', { roomId: room.id, reason });
     detach(socket);
+  }
+}
+
+/**
+ * Обработчик onForfeit для RoomManager (RC5): оставшемуся — финальный room:state с техпоражением,
+ * затем его сокет отвязывается. Без room:closed.
+ */
+export function notifyForfeit(io: GameServer, room: Room, loser: PlayerIndex): void {
+  console.info(`room ${room.id} forfeit (seat ${loser})`);
+  broadcastState(io, room);
+  for (const state of room.seats) {
+    const socket = socketById(io, state?.socketId ?? null);
+    if (socket) detach(socket);
   }
 }
 
@@ -95,13 +143,19 @@ export function registerRoomHandlers(io: GameServer, rooms: RoomManager): void {
         if (!isObject(payload)) return ack({ ok: false, error: 'INVALID_PAYLOAD' });
         const name = parseName(payload.name);
         if (!name.ok) return ack({ ok: false, error: 'INVALID_NAME' });
+        const turnSeconds = parseTurnSeconds(
+          payload.turnSeconds,
+          rooms.allowedTurnSeconds,
+          DEFAULT_TURN_SECONDS,
+        );
+        if (!turnSeconds.ok) return ack({ ok: false, error: 'INVALID_PAYLOAD' });
 
-        const result = rooms.create(socket.id, name.value);
+        const result = rooms.create(socket.id, name.value, turnSeconds.value);
         if (!result.ok) return ack({ ok: false, error: result.error });
         const { room, seat, token } = result.value;
         socket.data.roomId = room.id;
         socket.data.seat = seat;
-        console.info(`room ${room.id} created`);
+        console.info(`room ${room.id} created (turn ${room.turnSeconds}s)`);
         ack({ ok: true, roomId: room.id, seat, playerToken: token });
         broadcastState(io, room);
       }),

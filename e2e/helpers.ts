@@ -1,12 +1,29 @@
-import { expect, type BrowserContext, type Page } from '@playwright/test';
+import {
+  test as base,
+  devices,
+  expect,
+  type Browser,
+  type BrowserContext,
+  type Page,
+} from '@playwright/test';
 
 export const TIMEOUT = { timeout: 10_000 };
 const INVITE_RE = /\/\?room=[A-HJ-NP-Z2-9]{6}$/;
 
+export interface CreateGameOptions {
+  /** spec-11: выбрать `turn-seconds-<N>` перед созданием; нет — значение по умолчанию (60 с). */
+  turnSeconds?: number;
+}
+
 /** Вкладка A: «Создать игру» → экран ожидания; возвращает ссылку-приглашение. */
-export async function createGame(page: Page, name: string): Promise<string> {
+export async function createGame(
+  page: Page,
+  name: string,
+  { turnSeconds }: CreateGameOptions = {},
+): Promise<string> {
   await page.goto('/');
   await expect(page.getByTestId('connection-status')).toHaveText('connected', TIMEOUT);
+  if (turnSeconds !== undefined) await page.getByTestId(`turn-seconds-${turnSeconds}`).check();
   await page.getByTestId('name-input').fill(name);
   await page.getByTestId('create-button').click();
   await expect(page.getByTestId('waiting-screen')).toBeVisible(TIMEOUT);
@@ -24,28 +41,89 @@ export async function joinByLink(page: Page, link: string, name: string): Promis
   await page.getByTestId('join-button').click();
 }
 
-export interface StartGameOptions {
+type StorageState = Awaited<ReturnType<BrowserContext['storageState']>>;
+
+export interface PlayerOptions {
   viewport?: { width: number; height: number };
+  /** Сохранённый `ctx.storageState()` — «тот же браузер» после закрытия (spec-9 X16). */
+  storageState?: StorageState;
+  /**
+   * spec-10 §4.4: по умолчанию 'reduce' — полёты костей не запускаются, DOM обновляется
+   * мгновенно; 'no-preference' — с анимациями (E17).
+   */
+  reducedMotion?: 'reduce' | 'no-preference';
 }
 
-/** Две вкладки одного контекста встречаются в комнате; обе — на столе. */
+/** Контексты, открытые `newPlayer` в текущем тесте; закрываются фикстурой `test` ниже. */
+const openContexts = new Set<BrowserContext>();
+
+/**
+ * spec-9: место держится за браузером (localStorage), поэтому каждый игрок — отдельный
+ * контекст (вкладки одного контекста — один игрок).
+ */
+export async function newPlayer(
+  browser: Browser,
+  { viewport, storageState, reducedMotion = 'reduce' }: PlayerOptions = {},
+): Promise<{ context: BrowserContext; page: Page }> {
+  const context = await browser.newContext({
+    ...devices['Desktop Chrome'],
+    baseURL: base.info().project.use.baseURL,
+    permissions: ['clipboard-read', 'clipboard-write'],
+    reducedMotion,
+    ...(viewport ? { viewport } : {}),
+    ...(storageState ? { storageState } : {}),
+  });
+  openContexts.add(context);
+  context.once('close', () => openContexts.delete(context));
+  return { context, page: await context.newPage() };
+}
+
+/** `test` с автоматическим закрытием контекстов `newPlayer` после каждого теста. */
+export const test = base.extend<{ closePlayers: void }>({
+  closePlayers: [
+    // eslint-disable-next-line no-empty-pattern
+    async ({}, use) => {
+      await use();
+      await Promise.all([...openContexts].map((context) => context.close()));
+      openContexts.clear();
+    },
+    { auto: true },
+  ],
+});
+
+export interface StartedGame {
+  a: Page;
+  b: Page;
+  ctxA: BrowserContext;
+  ctxB: BrowserContext;
+  link: string;
+}
+
+/** A и B — в разных контекстах — встречаются в комнате; обе вкладки на столе. */
 export async function startGame(
-  context: BrowserContext,
-  { viewport }: StartGameOptions = {},
-): Promise<{ a: Page; b: Page }> {
-  const a = await context.newPage();
-  const b = await context.newPage();
-  if (viewport) {
-    await a.setViewportSize(viewport);
-    await b.setViewportSize(viewport);
-  }
-  const link = await createGame(a, 'Аня');
+  browser: Browser,
+  {
+    viewport,
+    reducedMotion,
+    turnSeconds,
+  }: Pick<PlayerOptions, 'viewport' | 'reducedMotion'> & CreateGameOptions = {},
+): Promise<StartedGame> {
+  const { context: ctxA, page: a } = await newPlayer(browser, { viewport, reducedMotion });
+  const { context: ctxB, page: b } = await newPlayer(browser, { viewport, reducedMotion });
+  const link = await createGame(a, 'Аня', { turnSeconds });
   await joinByLink(b, link, 'Боб');
   for (const page of [a, b]) {
     await expect(page.getByTestId('game-screen')).toBeVisible(TIMEOUT);
     await expect(page.getByTestId('turn-indicator')).toBeVisible(TIMEOUT);
   }
-  return { a, b };
+  return { a, b, ctxA, ctxB, link };
+}
+
+/** `data-testid` костей своей руки (`hand-tile-*`) в порядке DOM. */
+export async function readHand(page: Page): Promise<string[]> {
+  return page
+    .locator('[data-testid^="hand-tile-"]')
+    .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-testid') ?? ''));
 }
 
 export interface Table {

@@ -14,6 +14,27 @@ export interface ServerHelloPayload {
   protocolVersion: number;
   /** ISO-8601 */
   serverTime: string;
+  /** spec-8 D9: публичный origin для ссылок-приглашений (`PUBLIC_URL`), без завершающего `/`. Нет — клиент берёт свой origin. */
+  publicUrl?: string;
+  /**
+   * spec-11 T1: значения времени на ход для экрана создания, с, по возрастанию, начиная с 0.
+   * Обычно [0, 30, 60]; с TURN_TIMER_TEST_SECONDS — плюс тестовое.
+   */
+  turnSecondsOptions: number[];
+}
+
+/** spec-11 T1: допустимые значения времени на ход, с. 0 — таймер выключен. */
+export const TURN_SECONDS_OPTIONS: readonly number[] = [0, 30, 60];
+export const DEFAULT_TURN_SECONDS = 60;
+
+/** Таймер текущего хода глазами игрока (spec-11 T2–T10). */
+export interface TurnTimerView {
+  /** Чей ход тикает (= game.currentPlayer). */
+  seat: PlayerIndex;
+  /** Остаток, мс, на момент отправки. На паузе — замороженный остаток. */
+  remainingMs: number;
+  /** T7: стоит ли таймер (кто-то отключён). */
+  paused: boolean;
 }
 
 export type RoomPhase = 'waiting' | 'playing' | 'finished';
@@ -22,6 +43,8 @@ export interface RoomPlayer {
   seat: PlayerIndex;
   name: string;
   connected: boolean;
+  /** spec-9 RC8: сколько мс ещё ждём возвращения; null — игрок подключён. */
+  reconnectRemainingMs: number | null;
 }
 
 /** Состояние комнаты глазами одного игрока. Единственное событие с состоянием. */
@@ -35,6 +58,10 @@ export interface RoomStatePayload {
   game: PlayerView | null;
   /** null в waiting; иначе состояние матча (spec-7 M1). */
   match: MatchView | null;
+  /** spec-11 T1: настройка комнаты, с; 0 — выкл. */
+  turnSeconds: number;
+  /** spec-11: null — таймер не идёт (T3). */
+  turnTimer: TurnTimerView | null;
 }
 
 /** Матч глазами игроков: счёт, история и готовность к следующему раунду/реваншу. */
@@ -76,6 +103,8 @@ export interface RoomRejoinedAck {
 
 export interface RoomCreatePayload {
   name: string;
+  /** spec-11 T1: необязательно; нет — DEFAULT_TURN_SECONDS. Не из списка — INVALID_PAYLOAD. */
+  turnSeconds?: number;
 }
 
 export interface RoomJoinPayload {
