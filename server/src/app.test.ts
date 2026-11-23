@@ -53,6 +53,7 @@ describe('startServer', () => {
     const hello = await waitForHello(connectClient());
     expect(hello.protocolVersion).toBe(PROTOCOL_VERSION);
     expect(Number.isNaN(Date.parse(hello.serverTime))).toBe(false);
+    expect(hello.turnSecondsOptions).toEqual([0, 30, 60]); // spec-11
   });
 
   it('I2: each of two simultaneous clients gets its own server:hello', async () => {

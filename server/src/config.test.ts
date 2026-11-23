@@ -2,7 +2,12 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadConfig, parsePublicUrl, parseReconnectTimeout } from './config';
+import {
+  loadConfig,
+  parsePublicUrl,
+  parseReconnectTimeout,
+  parseTurnTimerTestSeconds,
+} from './config';
 
 let tmp: string | undefined;
 
@@ -76,5 +81,19 @@ describe('loadConfig / parsePublicUrl', () => {
 
   it('X11: RECONNECT_GRACE_MS is no longer read', () => {
     expect(loadConfig({ RECONNECT_GRACE_MS: '5000' }).reconnectTimeoutMs).toBeUndefined();
+  });
+});
+
+describe('parseTurnTimerTestSeconds (spec-11)', () => {
+  it('C1: empty → undefined, 1…29 accepted, the rest throws', () => {
+    expect(parseTurnTimerTestSeconds(undefined)).toBeUndefined();
+    expect(parseTurnTimerTestSeconds('')).toBeUndefined();
+    expect(parseTurnTimerTestSeconds('3')).toBe(3);
+    expect(parseTurnTimerTestSeconds('29')).toBe(29);
+    for (const bad of ['0', '30', 'abc', '2.5', '-1']) {
+      expect(() => parseTurnTimerTestSeconds(bad)).toThrow(/TURN_TIMER_TEST_SECONDS/);
+    }
+    expect(loadConfig({ TURN_TIMER_TEST_SECONDS: '3' }).turnTimerTestSeconds).toBe(3);
+    expect(loadConfig({}).turnTimerTestSeconds).toBeUndefined();
   });
 });

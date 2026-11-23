@@ -16,6 +16,7 @@ const GRACE = 1000;
 
 let onClose: ReturnType<typeof vi.fn<(room: Room, reason: RoomClosedReason) => void>>;
 let onForfeit: ReturnType<typeof vi.fn<(room: Room, loser: PlayerIndex) => void>>;
+let onAutoMove: ReturnType<typeof vi.fn<(room: Room) => void>>;
 let rooms: RoomManager;
 
 function makeRooms(extra: Partial<RoomManagerOptions> = {}): RoomManager {
@@ -25,12 +26,13 @@ function makeRooms(extra: Partial<RoomManagerOptions> = {}): RoomManager {
     now: () => Date.now(),
     onClose,
     onForfeit,
+    onAutoMove,
     ...extra,
   });
 }
 
-function setup(): { room: Room; tokens: [string, string] } {
-  const created = rooms.create('s0', 'A');
+function setup(turnSeconds?: number): { room: Room; tokens: [string, string] } {
+  const created = rooms.create('s0', 'A', turnSeconds);
   if (!created.ok) throw new Error('create failed');
   const joined = rooms.join('s1', created.value.room.id, 'B');
   if (!joined.ok) throw new Error('join failed');
@@ -41,6 +43,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   onClose = vi.fn<(room: Room, reason: RoomClosedReason) => void>();
   onForfeit = vi.fn<(room: Room, loser: PlayerIndex) => void>();
+  onAutoMove = vi.fn<(room: Room) => void>();
   rooms = makeRooms();
 });
 
@@ -106,7 +109,7 @@ describe('RoomManager', () => {
   });
 
   it('U10: disconnect of a replaced socket is ignored', () => {
-    const { room, tokens } = setup();
+    const { room, tokens } = setup(0); // без таймера хода — проверяем только таймеры мест
     const res = rooms.rejoin('s1b', room.id, tokens[1]);
     expect(res).toMatchObject({ ok: true, value: { seat: 1, replacedSocketId: 's1' } });
     expect(rooms.disconnect(room.id, 1, 's1')).toBeNull();
@@ -355,5 +358,330 @@ describe('RoomManager: match (spec-7)', () => {
     expect(room.match!.scores).toEqual([0, 0]);
     expect(room.match!.rounds).toHaveLength(1);
     expect(room.match!.winner).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// spec-11: таймер хода
+// ---------------------------------------------------------------------------
+
+const LIMIT = 60_000;
+
+/** Раунд из фикстуры: стол, руки, базар; ход места 0. */
+function fixture(
+  hand0: RoundState['hands'][0],
+  hand1: RoundState['hands'][1],
+  boneyard: RoundState['boneyard'],
+  board: RoundState['board'] = [{ tile: [5, 6], left: 5, right: 6 }],
+): () => RoundState {
+  return () => ({
+    hands: [hand0.map((t) => t), hand1.map((t) => t)],
+    boneyard: boneyard.map((t) => t),
+    board: board.map((p) => p),
+    openingTile: [6, 6],
+    currentPlayer: 0,
+    status: 'playing',
+    result: null,
+  });
+}
+
+/** T4a: у места 0 подходят [1,5] (6) и [3,4] (7) к концам 4|1. */
+const hasMove = fixture(
+  [
+    [1, 5],
+    [3, 4],
+    [0, 0],
+  ],
+  [
+    [6, 6],
+    [2, 2],
+  ],
+  [[5, 5]],
+  [{ tile: [1, 4], left: 4, right: 1 }],
+);
+
+/** T4b: хода нет; в базаре [2,3] не подходит, [3,5] подходит к 5. */
+const mustDraw = fixture(
+  [
+    [0, 0],
+    [1, 1],
+  ],
+  [[6, 6]],
+  [
+    [2, 3],
+    [3, 5],
+    [4, 4],
+  ],
+);
+
+/** T4b′: хода нет, весь базар не подходит. */
+const drawAllThenPass = fixture(
+  [[0, 0]],
+  [
+    [6, 6],
+    [1, 2],
+  ],
+  [
+    [1, 1],
+    [2, 2],
+  ],
+);
+
+/** T4c: хода нет, базар пуст. */
+const mustPass = fixture([[0, 0]], [[6, 6]], []);
+
+/** T6a: последняя кость места 0 подходит — авто-ход заканчивает раунд «домино». */
+const lastTile = fixture(
+  [[4, 4]],
+  [
+    [6, 6],
+    [2, 2],
+  ],
+  [[5, 5]],
+  [{ tile: [1, 4], left: 4, right: 1 }],
+);
+
+function timerView(room: Room) {
+  return toRoomState(room, 0, Date.now()).turnTimer;
+}
+
+describe('RoomManager: turn timer (spec-11)', () => {
+  it('T1: create keeps turnSeconds, 60 by default', () => {
+    const a = rooms.create('s0', 'A');
+    const b = rooms.create('s1', 'B', 30);
+    expect(a.ok && a.value.room.turnSeconds).toBe(60);
+    expect(b.ok && b.value.room.turnSeconds).toBe(30);
+    expect(a.ok && a.value.room.turnTimer).toBeNull(); // waiting
+  });
+
+  it('T2a: the round start runs the timer of currentPlayer with the full limit', () => {
+    const { room } = setup();
+    expect(timerView(room)).toEqual({
+      seat: room.round!.currentPlayer,
+      remainingMs: LIMIT,
+      paused: false,
+    });
+    expect(toRoomState(room, 1).turnSeconds).toBe(60);
+  });
+
+  it('T4a: has a move → the heaviest tile is played, turn goes to the opponent', () => {
+    rooms = makeRooms({ startRound: hasMove });
+    const { room } = setup();
+    const boneyard = [...room.round!.boneyard];
+    vi.advanceTimersByTime(LIMIT - 1);
+    expect(onAutoMove).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onAutoMove).toHaveBeenCalledExactlyOnceWith(room);
+    expect(room.round!.board.map((p) => p.tile)).toEqual([
+      [3, 4],
+      [1, 4],
+    ]);
+    expect(room.round!.hands[0]).toEqual([
+      [1, 5],
+      [0, 0],
+    ]);
+    expect(room.round!.boneyard).toEqual(boneyard);
+    expect(room.round!.currentPlayer).toBe(1);
+    expect(toRoomState(room, 1, Date.now()).turnTimer).toEqual({
+      seat: 1,
+      remainingMs: LIMIT,
+      paused: false,
+    });
+  });
+
+  it('T4b: must draw → draws until a tile fits and plays it', () => {
+    rooms = makeRooms({ startRound: mustDraw });
+    const { room } = setup();
+    vi.advanceTimersByTime(LIMIT);
+    expect(onAutoMove).toHaveBeenCalledTimes(1);
+    const round = room.round!;
+    expect(round.boneyard).toEqual([[4, 4]]); // добрано 2 кости
+    expect(round.board.map((p) => p.tile)).toEqual([
+      [3, 5],
+      [5, 6],
+    ]);
+    expect(round.hands[0]).toEqual([
+      [0, 0],
+      [1, 1],
+      [2, 3],
+    ]); // +1 относительно начала хода
+    expect(round.currentPlayer).toBe(1);
+    expect(timerView(room)).toEqual({ seat: 1, remainingMs: LIMIT, paused: false });
+  });
+
+  it('T4b′: must draw and nothing fits → draws the whole boneyard, then passes', () => {
+    rooms = makeRooms({ startRound: drawAllThenPass });
+    const { room } = setup();
+    vi.advanceTimersByTime(LIMIT);
+    expect(onAutoMove).toHaveBeenCalledTimes(1);
+    const round = room.round!;
+    expect(round.boneyard).toEqual([]);
+    expect(round.hands[0]).toEqual([
+      [0, 0],
+      [1, 1],
+      [2, 2],
+    ]);
+    expect(round.board).toHaveLength(1);
+    expect(round.status).toBe('playing');
+    expect(round.currentPlayer).toBe(1);
+  });
+
+  it('T4c: boneyard empty and nothing fits → pass', () => {
+    rooms = makeRooms({ startRound: mustPass });
+    const { room } = setup();
+    const before = structuredClone(room.round!);
+    vi.advanceTimersByTime(LIMIT);
+    expect(onAutoMove).toHaveBeenCalledTimes(1);
+    expect(room.round).toEqual({ ...before, currentPlayer: 1 });
+    expect(timerView(room)).toEqual({ seat: 1, remainingMs: LIMIT, paused: false });
+  });
+
+  it('T2b: a manual draw does not extend the time', () => {
+    rooms = makeRooms({ startRound: mustDraw });
+    const { room } = setup();
+    vi.advanceTimersByTime(20_000);
+    expect(rooms.move(room.id, 0, { type: 'draw' }).ok).toBe(true);
+    expect(timerView(room)).toEqual({ seat: 0, remainingMs: 40_000, paused: false });
+    vi.advanceTimersByTime(40_000);
+    expect(onAutoMove).toHaveBeenCalledTimes(1);
+    expect(room.round!.currentPlayer).toBe(1);
+  });
+
+  it('T2c: a manual play starts the opponent timer with the full limit', () => {
+    rooms = makeRooms({ startRound: hasMove });
+    const { room } = setup();
+    vi.advanceTimersByTime(30_000);
+    expect(rooms.move(room.id, 0, { type: 'play', tile: [1, 5], end: 'right' }).ok).toBe(true);
+    expect(timerView(room)).toEqual({ seat: 1, remainingMs: LIMIT, paused: false });
+    vi.advanceTimersByTime(LIMIT - 1);
+    expect(onAutoMove).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onAutoMove).toHaveBeenCalledTimes(1);
+    expect(room.round!.currentPlayer).toBe(0);
+  });
+
+  it('T3a: turnSeconds 0 → no timer, nothing happens', () => {
+    rooms = makeRooms({ startRound: hasMove });
+    const { room } = setup(0);
+    expect(room.turnTimer).toBeNull();
+    expect(toRoomState(room, 0)).toMatchObject({ turnSeconds: 0, turnTimer: null });
+    const before = structuredClone(room.round);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(room.round).toEqual(before);
+    expect(onAutoMove).not.toHaveBeenCalled();
+  });
+
+  it('T6a/T3b: an auto-move with the last tile ends the round once; next round restarts the timer', () => {
+    rooms = makeRooms({ startRound: lastTile });
+    const { room } = setup();
+    vi.advanceTimersByTime(LIMIT);
+    expect(onAutoMove).toHaveBeenCalledTimes(1);
+    expect(room.round!.status).toBe('finished');
+    expect(room.round!.result).toMatchObject({ reason: 'domino', winner: 0, points: 16 });
+    expect(room.match!.scores).toEqual([16, 0]);
+    expect(room.match!.rounds).toHaveLength(1);
+    expect(room.turnTimer).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+
+    rooms.ready(room.id, 0);
+    expect(room.turnTimer).toBeNull();
+    rooms.ready(room.id, 1);
+    expect(room.match!.roundNumber).toBe(2);
+    expect(timerView(room)).toEqual({ seat: 0, remainingMs: LIMIT, paused: false });
+  });
+
+  it('T6b: an auto-move reaching the target wins the match', () => {
+    rooms = makeRooms({ startRound: lastTile, matchTarget: 10 });
+    const { room } = setup();
+    vi.advanceTimersByTime(LIMIT);
+    expect(room.match!.winner).toBe(0);
+    expect(roomPhase(room)).toBe('finished');
+    expect(room.turnTimer).toBeNull();
+    expect(room.turnSeconds).toBe(60);
+  });
+
+  it('T7a/T7c: opponent offline pauses the timer; rejoin resumes from the frozen rest', () => {
+    rooms = makeRooms({ startRound: hasMove, reconnectTimeoutMs: 10 * 60_000 });
+    const { room, tokens } = setup();
+    vi.advanceTimersByTime(20_000);
+    rooms.disconnect(room.id, 1, 's1');
+    expect(timerView(room)).toEqual({ seat: 0, remainingMs: 40_000, paused: true });
+    vi.advanceTimersByTime(5 * 60_000);
+    expect(onAutoMove).not.toHaveBeenCalled();
+    expect(timerView(room)).toEqual({ seat: 0, remainingMs: 40_000, paused: true });
+
+    rooms.rejoin('s1b', room.id, tokens[1]);
+    expect(timerView(room)).toEqual({ seat: 0, remainingMs: 40_000, paused: false });
+    vi.advanceTimersByTime(40_000 - 1);
+    expect(onAutoMove).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onAutoMove).toHaveBeenCalledTimes(1);
+  });
+
+  it('T7b: the player on turn offline pauses the timer too', () => {
+    rooms = makeRooms({ startRound: hasMove, reconnectTimeoutMs: 10 * 60_000 });
+    const { room } = setup();
+    vi.advanceTimersByTime(10_000);
+    rooms.disconnect(room.id, 0, 's0');
+    expect(timerView(room)).toEqual({ seat: 0, remainingMs: 50_000, paused: true });
+    vi.advanceTimersByTime(5 * 60_000);
+    expect(onAutoMove).not.toHaveBeenCalled();
+  });
+
+  it('T7d: both offline, one returns → still paused', () => {
+    rooms = makeRooms({ reconnectTimeoutMs: 10 * 60_000 });
+    const { room, tokens } = setup();
+    vi.advanceTimersByTime(5_000);
+    rooms.disconnect(room.id, 0, 's0');
+    vi.advanceTimersByTime(5_000);
+    rooms.disconnect(room.id, 1, 's1'); // при стоящей паузе остаток не меняется
+    rooms.rejoin('s0b', room.id, tokens[0]);
+    expect(timerView(room)).toMatchObject({ remainingMs: LIMIT - 5_000, paused: true });
+    rooms.rejoin('s1b', room.id, tokens[1]);
+    expect(timerView(room)).toMatchObject({ remainingMs: LIMIT - 5_000, paused: false });
+  });
+
+  it('T7e: the offline player does not return → forfeit, no auto-move, no timers left', () => {
+    const { room } = setup();
+    rooms.disconnect(room.id, 1, 's1');
+    vi.advanceTimersByTime(GRACE);
+    expect(onForfeit).toHaveBeenCalledTimes(1);
+    expect(room.turnTimer).toBeNull();
+    expect(toRoomState(room, 0).turnTimer).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(10 * LIMIT);
+    expect(onAutoMove).not.toHaveBeenCalled();
+  });
+
+  it('T8a: a manual move just before the deadline cancels the old timer', () => {
+    rooms = makeRooms({ startRound: hasMove });
+    const { room } = setup();
+    vi.advanceTimersByTime(LIMIT - 1);
+    expect(rooms.move(room.id, 0, { type: 'play', tile: [3, 4], end: 'left' }).ok).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(onAutoMove).not.toHaveBeenCalled();
+    expect(room.round!.board).toHaveLength(2);
+    expect(timerView(room)).toEqual({ seat: 1, remainingMs: LIMIT - 1, paused: false });
+  });
+
+  it('T8b: a manual move after the auto-move gets NOT_YOUR_TURN', () => {
+    rooms = makeRooms({ startRound: hasMove });
+    const { room } = setup();
+    vi.advanceTimersByTime(LIMIT);
+    expect(rooms.move(room.id, 0, { type: 'play', tile: [1, 5], end: 'right' })).toEqual({
+      ok: false,
+      error: 'NOT_YOUR_TURN',
+    });
+  });
+
+  it('T9: closeAll with a running turn timer leaves no timers', () => {
+    const { room } = setup();
+    expect(room.turnTimer?.handle).not.toBeNull();
+    expect(vi.getTimerCount()).toBe(1);
+    rooms.closeAll();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(LIMIT);
+    expect(onAutoMove).not.toHaveBeenCalled();
   });
 });

@@ -6,12 +6,18 @@ import {
   createMatch,
   MATCH_TARGET,
   PROTOCOL_VERSION,
+  TURN_SECONDS_OPTIONS,
   type ClientToServerEvents,
   type InterServerEvents,
   type ServerToClientEvents,
   type SocketData,
 } from '@domino/shared';
-import { notifyForfeit, notifyRoomClosed, registerRoomHandlers } from './rooms/handlers';
+import {
+  broadcastState,
+  notifyForfeit,
+  notifyRoomClosed,
+  registerRoomHandlers,
+} from './rooms/handlers';
 import { RoomManager } from './rooms/RoomManager';
 import { createStaticHandler, type StaticHandler } from './static';
 
@@ -31,6 +37,8 @@ export interface StartServerOptions {
   publicUrl?: string;
   /** spec-8 D2: каталог собранного клиента; не задан — статика выключена (D7). */
   staticDir?: string;
+  /** spec-11 §4.2: доп. значение времени на ход, с (только e2e, TURN_TIMER_TEST_SECONDS). */
+  turnTimerTestSeconds?: number;
 }
 
 export interface RunningServer {
@@ -41,6 +49,13 @@ export interface RunningServer {
 export function startServer(opts: StartServerOptions): Promise<RunningServer> {
   const matchTarget = opts.matchTarget ?? MATCH_TARGET;
   createMatch(matchTarget); // throw на старте, а не при первом room:join
+  // spec-11: [0, (тест), 30, 60] — для room:create и server:hello.turnSecondsOptions.
+  const allowedTurnSeconds = [
+    ...new Set([
+      ...TURN_SECONDS_OPTIONS,
+      ...(opts.turnTimerTestSeconds ? [opts.turnTimerTestSeconds] : []),
+    ]),
+  ].sort((a, b) => a - b);
   const serveStatic = opts.staticDir ? createStaticHandler(opts.staticDir) : undefined;
   const httpServer = createServer((req, res) => {
     // Запросы /socket.io/* Socket.IO перехватывает раньше и сюда не передаёт.
@@ -63,6 +78,8 @@ export function startServer(opts: StartServerOptions): Promise<RunningServer> {
     matchTarget,
     onClose: (room, reason) => notifyRoomClosed(io, room, reason),
     onForfeit: (room, loser) => notifyForfeit(io, room, loser),
+    allowedTurnSeconds,
+    onAutoMove: (room) => broadcastState(io, room),
   });
 
   io.on('connection', (socket) => {
@@ -72,6 +89,7 @@ export function startServer(opts: StartServerOptions): Promise<RunningServer> {
       serverTime: new Date().toISOString(),
       // D9: ключа нет вовсе, если PUBLIC_URL не задан.
       ...(opts.publicUrl ? { publicUrl: opts.publicUrl } : {}),
+      turnSecondsOptions: [...allowedTurnSeconds],
     });
     socket.on('disconnect', (reason) => {
       console.info(`disconnected ${socket.id} ${reason}`);

@@ -1,13 +1,17 @@
 import {
   applyMove,
   createMatch,
+  DEFAULT_TURN_SECONDS,
+  TURN_SECONDS_OPTIONS,
   forfeitMatch,
   nextRoundNumber,
+  pickAutoMove,
   recordRound,
   startRound,
   type MatchState,
   type GameErrorCode,
   type Move,
+  type MoveError,
   type PlayerIndex,
   type RoomClosedReason,
   type RoomErrorCode,
@@ -29,6 +33,21 @@ export interface SeatState {
   reconnectDeadline: number | null;
 }
 
+/** spec-11: таймер текущего хода (T2–T10). */
+export interface TurnTimerState {
+  seat: PlayerIndex;
+  /** Монотонный номер хода (T8). */
+  seq: number;
+  /** Идёт: момент истечения по now(); на паузе — null. */
+  deadline: number | null;
+  /** На паузе: замороженный остаток, мс; идёт — null. */
+  pausedRemainingMs: number | null;
+  handle: NodeJS.Timeout | null;
+}
+
+/** spec-11 T4: 14 доборов + ход — больше за один авто-ход не бывает. */
+const MAX_AUTO_MOVES = 15;
+
 export interface Room {
   id: string;
   seats: [SeatState, SeatState | null];
@@ -38,6 +57,10 @@ export interface Room {
   match: MatchState | null;
   /** Готовность мест к следующему раунду/реваншу (M4–M6). Хранится за местом, не за сокетом (M8). */
   ready: [boolean, boolean];
+  /** spec-11 T1: время на ход, с; 0 — таймер выключен. Не меняется до закрытия комнаты. */
+  turnSeconds: number;
+  /** spec-11: null — таймер не идёт (T3). */
+  turnTimer: TurnTimerState | null;
 }
 
 export interface RoomManagerOptions {
@@ -54,6 +77,10 @@ export interface RoomManagerOptions {
   onClose: (room: Room, reason: RoomClosedReason) => void;
   /** RC5: техническое поражение места `loser`; вызывается, когда комната уже удалена из менеджера. */
   onForfeit: (room: Room, loser: PlayerIndex) => void;
+  /** spec-11: допустимые turnSeconds (по умолчанию [0, 30, 60]). */
+  allowedTurnSeconds?: readonly number[];
+  /** spec-11 T6: сделан авто-ход по таймеру (комната ещё в менеджере). */
+  onAutoMove: (room: Room) => void;
 }
 
 export function roomPhase(room: Room): RoomPhase {
@@ -72,8 +99,15 @@ const err = <E extends string>(error: E): { ok: false; error: E } => ({ ok: fals
  */
 export class RoomManager {
   private readonly rooms = new Map<string, Room>();
+  /** spec-11 T8: сквозной счётчик ходов для таймера. */
+  private turnSeq = 0;
 
   constructor(private readonly opts: RoomManagerOptions) {}
+
+  /** spec-11 T1: допустимые значения времени на ход, с, по возрастанию. */
+  get allowedTurnSeconds(): readonly number[] {
+    return this.opts.allowedTurnSeconds ?? TURN_SECONDS_OPTIONS;
+  }
 
   get(roomId: string): Room | undefined {
     return this.rooms.get(roomId);
@@ -82,6 +116,7 @@ export class RoomManager {
   create(
     socketId: string,
     name: string,
+    turnSeconds: number = DEFAULT_TURN_SECONDS,
   ): Result<{ room: Room; seat: 0; token: string }, RoomErrorCode> {
     const id = generateRoomId((candidate) => this.rooms.has(candidate));
     const token = generateToken();
@@ -91,6 +126,8 @@ export class RoomManager {
       round: null,
       match: null,
       ready: [false, false],
+      turnSeconds,
+      turnTimer: null,
     };
     this.rooms.set(id, room);
     return ok({ room, seat: 0, token });
@@ -110,6 +147,7 @@ export class RoomManager {
     room.match = createMatch(this.opts.matchTarget);
     room.ready = [false, false];
     room.round = this.newRound();
+    this.syncTurnTimer(room);
     return ok({ room, seat: 1, token });
   }
 
@@ -127,6 +165,7 @@ export class RoomManager {
     state.reconnectDeadline = null; // RC3
     const previous = state.socketId;
     state.socketId = socketId;
+    this.syncTurnTimer(room); // T7: продолжение с замороженного остатка
     return ok({
       room,
       seat,
@@ -138,14 +177,9 @@ export class RoomManager {
     const room = this.rooms.get(roomId);
     if (!room) return err('NOT_IN_ROOM');
     if (room.round === null) return err('GAME_NOT_STARTED');
-    const previous = room.round;
-    const result = applyMove(previous, seat, move);
-    if (!result.ok) return err(result.error);
-    room.round = result.state;
-    // M2, M3: очки раунда — ровно один раз, в момент перехода playing → finished.
-    if (previous.status === 'playing' && result.state.status === 'finished' && room.match) {
-      room.match = recordRound(room.match, result.state.result!);
-    }
+    const result = this.apply(room, seat, move);
+    if (!result.ok) return result;
+    this.syncTurnTimer(room);
     return ok({ room });
   }
 
@@ -170,6 +204,7 @@ export class RoomManager {
     room.match = rematch ? createMatch(room.match.target) : nextRoundNumber(room.match);
     room.round = this.newRound();
     room.ready = [false, false];
+    this.syncTurnTimer(room);
     return ok({ room, changed: true, started: rematch ? 'match' : 'round' });
   }
 
@@ -188,6 +223,7 @@ export class RoomManager {
       state.reconnectTimer = null;
       this.expire(room, seat);
     }, this.opts.reconnectTimeoutMs);
+    this.syncTurnTimer(room); // T7: пауза
     return room;
   }
 
@@ -205,6 +241,103 @@ export class RoomManager {
 
   private now(): number {
     return (this.opts.now ?? Date.now)();
+  }
+
+  /** Ход по правилам + очки раунда (общая часть ручного хода и авто-хода, T6). */
+  private apply(room: Room, seat: PlayerIndex, move: Move): Result<null, MoveError> {
+    const previous = room.round!;
+    const result = applyMove(previous, seat, move);
+    if (!result.ok) return err(result.error);
+    room.round = result.state;
+    // M2, M3: очки раунда — ровно один раз, в момент перехода playing → finished.
+    if (previous.status === 'playing' && result.state.status === 'finished' && room.match) {
+      room.match = recordRound(room.match, result.state.result!);
+    }
+    return ok(null);
+  }
+
+  /**
+   * spec-11: единственное место, которое решает судьбу таймера хода.
+   * T3 — не идёт; T2 — новый ход с полным лимитом, тот же ход — с остатка; T7 — пауза.
+   */
+  private syncTurnTimer(room: Room): void {
+    const previous = room.turnTimer;
+    if (previous?.handle) clearTimeout(previous.handle);
+    const round = room.round;
+    const match = room.match;
+    if (
+      room.turnSeconds === 0 ||
+      round === null ||
+      round.status !== 'playing' ||
+      match === null ||
+      match.winner !== null ||
+      match.forfeit != null
+    ) {
+      room.turnTimer = null;
+      return;
+    }
+
+    const seat = round.currentPlayer;
+    const now = this.now();
+    let seq: number;
+    let remaining: number;
+    if (previous && previous.seat === seat) {
+      seq = previous.seq;
+      remaining =
+        previous.deadline !== null
+          ? Math.max(0, previous.deadline - now)
+          : (previous.pausedRemainingMs ?? 0);
+    } else {
+      seq = ++this.turnSeq;
+      remaining = room.turnSeconds * 1000;
+    }
+
+    const paused = room.seats.some((state) => state === null || state.socketId === null);
+    room.turnTimer = paused
+      ? { seat, seq, deadline: null, pausedRemainingMs: remaining, handle: null }
+      : {
+          seat,
+          seq,
+          deadline: now + remaining,
+          pausedRemainingMs: null,
+          handle: setTimeout(() => this.onTurnTimeout(room, seq), remaining),
+        };
+  }
+
+  /** spec-11 T4, T6, T8: время вышло — доиграть ход за `currentPlayer` целиком. */
+  private onTurnTimeout(room: Room, seq: number): void {
+    const timer = room.turnTimer;
+    if (
+      this.rooms.get(room.id) !== room ||
+      !timer ||
+      timer.seq !== seq ||
+      timer.deadline === null
+    ) {
+      return;
+    }
+    timer.handle = null;
+    const seat = timer.seat;
+    let moves = 0;
+    let failed = false;
+    while (
+      room.round?.status === 'playing' &&
+      room.round.currentPlayer === seat &&
+      moves < MAX_AUTO_MOVES
+    ) {
+      const move = pickAutoMove(room.round);
+      const result = move ? this.apply(room, seat, move) : err('ROUND_FINISHED');
+      if (!result.ok) {
+        // §10 п.8: невозможно по построению; не роняем сервер и не зацикливаемся.
+        console.error(`room ${room.id} auto-move failed (seat ${seat}): ${result.error}`);
+        failed = true;
+        break;
+      }
+      moves++;
+    }
+    console.info(`room ${room.id} auto-move (seat ${seat}, ${moves} moves)`);
+    if (failed) room.turnTimer = null; // перезапуск с полным лимитом вместо мгновенного повтора
+    this.syncTurnTimer(room);
+    this.opts.onAutoMove(room);
   }
 
   /** Истёк таймаут места `loser`: RC4/RC6 — закрыть комнату, RC5 — техническое поражение. */
@@ -231,6 +364,8 @@ export class RoomManager {
 
   private clearTimers(room: Room): void {
     for (const state of room.seats) if (state) this.clearTimer(state);
+    if (room.turnTimer?.handle) clearTimeout(room.turnTimer.handle);
+    room.turnTimer = null;
   }
 
   private clearTimer(state: SeatState): void {

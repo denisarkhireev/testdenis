@@ -17,6 +17,8 @@ export interface ServerConfig {
   publicUrl?: string;
   /** STATIC_DIR: абсолютный путь к собранному клиенту; не задан — статика выключена. */
   staticDir?: string;
+  /** TURN_TIMER_TEST_SECONDS (spec-11, только e2e): доп. значение времени на ход, с. */
+  turnTimerTestSeconds?: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): ServerConfig {
@@ -28,6 +30,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): ServerConfig {
     matchTarget: parseMatchTarget(env.MATCH_TARGET),
     publicUrl: parsePublicUrl(env.PUBLIC_URL),
     staticDir: parseStaticDir(env.STATIC_DIR),
+    turnTimerTestSeconds: parseTurnTimerTestSeconds(env.TURN_TIMER_TEST_SECONDS),
   };
 }
 
@@ -47,6 +50,21 @@ export function parseReconnectTimeout(raw: string | undefined): number | undefin
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`RECONNECT_TIMEOUT must be a positive integer (milliseconds), got "${raw}"`);
+  }
+  return value;
+}
+
+/**
+ * spec-11 §4.2: TURN_TIMER_TEST_SECONDS — целое 1…29 (короткий лимит хода для e2e, добавляется
+ * к выбору 0/30/60). Не задана — undefined; в проде не задаётся.
+ */
+export function parseTurnTimerTestSeconds(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1 || value > 29) {
+    throw new Error(
+      `TURN_TIMER_TEST_SECONDS must be an integer from 1 to 29 (seconds), got "${raw}"`,
+    );
   }
   return value;
 }

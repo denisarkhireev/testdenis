@@ -33,6 +33,8 @@ describe('rooms', () => {
       players: [{ seat: 0, name: 'A', connected: true, reconnectRemainingMs: null }],
       game: null,
       match: null,
+      turnSeconds: 60,
+      turnTimer: null,
     });
   });
 
