@@ -34,6 +34,7 @@ export const KEY_IDS = {
   home: [
     'name-input',
     'create-button',
+    'variant-choice',
     'match-target-choice',
     'hand-size-choice',
     'turn-seconds',
@@ -133,19 +134,22 @@ export interface CreateGameOptions {
   matchTarget?: number;
   /** spec-14: выбрать `hand-size-choice-<N>`; нет — 7. */
   handSize?: number;
+  /** spec-16: выбрать `variant-choice-<id>`; нет — сохранённое/«Классика». */
+  variant?: 'classic' | 'kozel';
 }
 
 /** Вкладка A: «Создать игру» → экран ожидания; возвращает ссылку-приглашение. */
 export async function createGame(
   page: Page,
   name: string,
-  { turnSeconds, matchTarget, handSize }: CreateGameOptions = {},
+  { turnSeconds, matchTarget, handSize, variant }: CreateGameOptions = {},
 ): Promise<string> {
   await page.goto('/');
   await expect(page.getByTestId('connection-status')).toHaveText('connected', TIMEOUT);
   if (matchTarget !== undefined) {
     await page.getByTestId(`match-target-choice-${matchTarget}`).check();
   }
+  if (variant !== undefined) await page.getByTestId(`variant-choice-${variant}`).check();
   if (handSize !== undefined) await page.getByTestId(`hand-size-choice-${handSize}`).check();
   if (turnSeconds !== undefined) await page.getByTestId(`turn-seconds-${turnSeconds}`).check();
   await page.getByTestId('name-input').fill(name);
@@ -160,13 +164,14 @@ export async function createGame(
 export async function createBotGame(
   page: Page,
   name: string,
-  { turnSeconds, matchTarget, handSize }: CreateGameOptions = {},
+  { turnSeconds, matchTarget, handSize, variant }: CreateGameOptions = {},
 ): Promise<void> {
   await page.goto('/');
   await expect(page.getByTestId('connection-status')).toHaveText('connected', TIMEOUT);
   if (matchTarget !== undefined) {
     await page.getByTestId(`match-target-choice-${matchTarget}`).check();
   }
+  if (variant !== undefined) await page.getByTestId(`variant-choice-${variant}`).check();
   if (handSize !== undefined) await page.getByTestId(`hand-size-choice-${handSize}`).check();
   if (turnSeconds !== undefined) await page.getByTestId(`turn-seconds-${turnSeconds}`).check();
   await page.getByTestId('name-input').fill(name);
@@ -257,6 +262,7 @@ export async function startGame(
     turnSeconds,
     matchTarget,
     handSize,
+    variant,
     names = ['Аня', 'Боб'],
   }: Pick<PlayerOptions, 'viewport' | 'reducedMotion' | 'soundOff'> &
     CreateGameOptions & {
@@ -274,7 +280,7 @@ export async function startGame(
     reducedMotion,
     soundOff,
   });
-  const link = await createGame(a, names[0], { turnSeconds, matchTarget, handSize });
+  const link = await createGame(a, names[0], { turnSeconds, matchTarget, handSize, variant });
   await joinByLink(b, link, names[1]);
   for (const page of [a, b]) {
     await expect(page.getByTestId('game-screen')).toBeVisible(TIMEOUT);
