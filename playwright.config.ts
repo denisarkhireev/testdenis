@@ -6,6 +6,8 @@ const externalBaseUrl = process.env.E2E_BASE_URL;
 
 export default defineConfig({
   testDir: 'e2e',
+  // spec-13: скриншоты — отдельной командой `npm run screens` (playwright.screens.config.ts).
+  testIgnore: 'screens.spec.ts',
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
   use: {

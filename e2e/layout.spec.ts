@@ -25,14 +25,12 @@ async function expectLayout(page: Page, ids: string[]): Promise<void> {
 
 /** UI5: цепочка не шире своего контейнера и не прокручивается внутри. */
 async function expectBoardFits(page: Page): Promise<void> {
-  const board = await page
-    .getByTestId('board')
-    .evaluate((el) => ({
-      sw: el.scrollWidth,
-      cw: el.clientWidth,
-      sh: el.scrollHeight,
-      ch: el.clientHeight,
-    }));
+  const board = await page.getByTestId('board').evaluate((el) => ({
+    sw: el.scrollWidth,
+    cw: el.clientWidth,
+    sh: el.scrollHeight,
+    ch: el.clientHeight,
+  }));
   expect(board.sw).toBeLessThanOrEqual(board.cw);
   expect(board.sh).toBeLessThanOrEqual(board.ch);
 }
