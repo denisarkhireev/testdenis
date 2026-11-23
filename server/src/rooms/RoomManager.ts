@@ -4,6 +4,7 @@ import {
   BOT_NAME,
   createMatch,
   DEFAULT_HAND_SIZE,
+  DEFAULT_ROOM_MODE,
   DEFAULT_TURN_SECONDS,
   DEFAULT_VARIANT,
   getVariant,
@@ -16,7 +17,10 @@ import {
   pickAutoMove,
   pickBotMove,
   REACTION_COOLDOWN_MS,
+  seatCountOf,
   startRound,
+  teamOf,
+  teamSeats,
   type MatchState,
   type GameErrorCode,
   type Move,
@@ -25,6 +29,7 @@ import {
   type ReactionErrorCode,
   type RoomClosedReason,
   type RoomErrorCode,
+  type RoomMode,
   type RoomPhase,
   type RoomReactionPayload,
   type RoomSettings,
@@ -81,13 +86,16 @@ export interface TurnTimerState {
 
 export interface Room {
   id: string;
-  seats: [SeatState, SeatState | null];
+  /** spec-17 Q11: режим комнаты; не меняется до закрытия комнаты. */
+  mode: RoomMode;
+  /** Места по индексу; длина seatCountOf(mode) (2 или 4). seats[0] — создатель, всегда занято. */
+  seats: (SeatState | null)[];
   /** null в фазе waiting. Хранится только на сервере (K5). */
   round: RoundState | null;
   /** null в фазе waiting; иначе текущий матч (spec-7 M1). */
   match: MatchState | null;
-  /** Готовность мест к следующему раунду/реваншу (M4–M6). Хранится за местом, не за сокетом (M8). */
-  ready: [boolean, boolean];
+  /** Готовность мест к следующему раунду/реваншу (M4–M6, spec-17 Q10). Длина = число мест (M8). */
+  ready: boolean[];
   /** spec-11 T1: время на ход, с; 0 — таймер выключен. Не меняется до закрытия комнаты. */
   turnSeconds: number;
   /** spec-14 S1, S6: цель матча комнаты. Не меняется до закрытия комнаты (раунды, реванш). */
@@ -119,6 +127,8 @@ export interface RoomManagerOptions {
   onClose: (room: Room, reason: RoomClosedReason) => void;
   /** RC5: техническое поражение места `loser`; вызывается, когда комната уже удалена из менеджера. */
   onForfeit: (room: Room, loser: PlayerIndex) => void;
+  /** spec-17 Q13: в фазе waiting 2×2 освобождено место (комната ещё в менеджере). */
+  onSeatFreed?: (room: Room) => void;
   /** spec-11: допустимые turnSeconds (по умолчанию [0, 30, 60]). */
   allowedTurnSeconds?: readonly number[];
   /** spec-11 T6: сделан авто-ход по таймеру (комната ещё в менеджере). */
@@ -139,8 +149,31 @@ export function roomPhase(room: Room): RoomPhase {
 const ok = <T>(value: T): { ok: true; value: T } => ({ ok: true, value });
 const err = <E extends string>(error: E): { ok: false; error: E } => ({ ok: false, error });
 
+/** spec-17: все места комнаты (0..n-1). */
+export function seatIndexes(room: Pick<Room, 'seats'>): PlayerIndex[] {
+  return room.seats.map((_, i) => i as PlayerIndex);
+}
+
+/** spec-17: число мест комнаты. */
+function seatCount(room: Room): 2 | 4 {
+  return seatCountOf(room.mode);
+}
+
+/** Новое человеческое место. */
+function humanSeat(name: string, token: string, socketId: string): SeatState {
+  return {
+    name,
+    token,
+    socketId,
+    reconnectTimer: null,
+    reconnectDeadline: null,
+    lastReactionAt: null,
+    bot: false,
+  };
+}
+
 /**
- * Доменная логика комнат на двоих (spec-4 §3). Без socket.io: сокеты — только строковые id.
+ * Доменная логика комнат на двоих и на четверых (spec-4 §3, spec-17). Без socket.io: сокеты — только строковые id.
  * Правила игры не реализует — делегирует `startRound`/`applyMove` из shared.
  */
 export class RoomManager {
@@ -182,26 +215,20 @@ export class RoomManager {
       handSize = DEFAULT_HAND_SIZE,
       turnSeconds = DEFAULT_TURN_SECONDS,
       variant = DEFAULT_VARIANT,
+      mode = DEFAULT_ROOM_MODE,
     } = settings;
     const id = generateRoomId((candidate) => this.rooms.has(candidate));
     const token = generateToken();
+    const count = seatCountOf(mode);
+    const seats: (SeatState | null)[] = Array.from({ length: count }, () => null);
+    seats[0] = humanSeat(name, token, socketId);
     const room: Room = {
       id,
-      seats: [
-        {
-          name,
-          token,
-          socketId,
-          reconnectTimer: null,
-          reconnectDeadline: null,
-          lastReactionAt: null,
-          bot: false,
-        },
-        null,
-      ],
+      mode,
+      seats,
       round: null,
       match: null,
-      ready: [false, false],
+      ready: Array.from({ length: count }, () => false),
       turnSeconds,
       matchTarget,
       handSize,
@@ -213,8 +240,8 @@ export class RoomManager {
     return ok({ room, seat: 0, token });
   }
 
-  /** spec-14 S7: настройки комнаты без входа в неё; чистое чтение. */
-  info(roomId: string): Result<RoomSettings, 'ROOM_NOT_FOUND'> {
+  /** spec-14 S7: настройки комнаты без входа в неё; чистое чтение. spec-17: + mode, freeSeats. */
+  info(roomId: string): Result<RoomSettings & { freeSeats: number }, 'ROOM_NOT_FOUND'> {
     const room = this.rooms.get(roomId);
     if (!room) return err('ROOM_NOT_FOUND');
     return ok({
@@ -222,6 +249,8 @@ export class RoomManager {
       handSize: room.handSize,
       turnSeconds: room.turnSeconds,
       variant: room.variant,
+      mode: room.mode,
+      freeSeats: room.seats.filter((state) => state === null).length,
     });
   }
 
@@ -229,22 +258,18 @@ export class RoomManager {
     socketId: string,
     roomId: string,
     name: string,
-  ): Result<{ room: Room; seat: 1; token: string }, RoomErrorCode> {
+  ): Result<{ room: Room; seat: PlayerIndex; started: boolean; token: string }, RoomErrorCode> {
     const room = this.rooms.get(roomId);
     if (!room) return err('ROOM_NOT_FOUND');
-    if (room.seats[1] !== null) return err('ROOM_FULL');
+    // spec-17 Q12: наименьшее свободное место; матч стартует, когда заняты все.
+    const free = room.seats.findIndex((state) => state === null);
+    if (free === -1 || room.round !== null) return err('ROOM_FULL');
+    const seat = free as PlayerIndex;
     const token = generateToken();
-    room.seats[1] = {
-      name,
-      token,
-      socketId,
-      reconnectTimer: null,
-      reconnectDeadline: null,
-      lastReactionAt: null,
-      bot: false,
-    };
-    this.startMatch(room);
-    return ok({ room, seat: 1, token });
+    room.seats[seat] = humanSeat(name, token, socketId);
+    const started = room.seats.every((state) => state !== null);
+    if (started) this.startMatch(room);
+    return ok({ room, seat, started, token });
   }
 
   /** spec-15 B2: комната, где место 1 сразу занимает бот; матч стартует, как после `join`. */
@@ -269,10 +294,10 @@ export class RoomManager {
     return created;
   }
 
-  /** K4: waiting → playing синхронно при занятии второго места; M1: вместе с первым раундом — матч. */
+  /** K4: waiting → playing синхронно при занятии последнего места; M1: вместе с первым раундом — матч. */
   private startMatch(room: Room): void {
     room.match = createMatch(room.matchTarget); // S6
-    room.ready = [false, false];
+    room.ready.fill(false);
     room.round = this.newRound(room);
     this.syncTimers(room);
   }
@@ -284,7 +309,7 @@ export class RoomManager {
   ): Result<{ room: Room; seat: PlayerIndex; replacedSocketId: string | null }, RoomErrorCode> {
     const room = this.rooms.get(roomId);
     if (!room) return err('ROOM_NOT_FOUND');
-    const seat = ([0, 1] as const).find((s) => room.seats[s]?.token === token);
+    const seat = seatIndexes(room).find((s) => room.seats[s]?.token === token);
     if (seat === undefined) return err('INVALID_TOKEN');
     const state = room.seats[seat]!;
     this.clearTimer(state);
@@ -324,12 +349,12 @@ export class RoomManager {
     if (room.ready[seat]) return ok({ room, changed: false, started: null });
 
     room.ready[seat] = true;
-    if (!room.ready[0] || !room.ready[1]) return ok({ room, changed: true, started: null });
+    if (!room.ready.every(Boolean)) return ok({ room, changed: true, started: null }); // Q10
 
     const rematch = room.match.winner !== null;
     room.match = rematch ? createMatch(room.matchTarget) : nextRoundNumber(room.match);
     room.round = this.newRound(room);
-    room.ready = [false, false];
+    room.ready.fill(false);
     this.syncTimers(room);
     return ok({ room, changed: true, started: rematch ? 'match' : 'round' });
   }
@@ -381,11 +406,15 @@ export class RoomManager {
     this.rooms.clear();
   }
 
-  /** spec-14 S4: раунд с размером руки комнаты. */
+  /** spec-14 S4: раунд с размером руки комнаты; spec-17 Q2: по числу мест. */
   private newRound(room: Room): RoundState {
     return this.opts.startRound
       ? this.opts.startRound(room)
-      : startRound({ seed: this.opts.roundSeed(), handSize: room.handSize });
+      : startRound({
+          seed: this.opts.roundSeed(),
+          handSize: room.handSize,
+          playerCount: seatCount(room),
+        });
   }
 
   private now(): number {
@@ -507,7 +536,7 @@ export class RoomManager {
   /** spec-15 B3: должен ли бот сейчас действовать. */
   private botShouldAct(room: Room): boolean {
     const { round, match } = room;
-    const human = room.seats[0];
+    const human = room.seats[0]!;
     return (
       room.seats[BOT_SEAT]?.bot === true &&
       round !== null &&
@@ -550,6 +579,10 @@ export class RoomManager {
   /** Истёк таймаут места `loser`: RC4/RC6 — закрыть комнату, RC5 — техническое поражение. */
   private expire(room: Room, loser: PlayerIndex): void {
     if (this.rooms.get(room.id) !== room) return;
+    if (room.mode === '2x2') {
+      this.expireTeam(room, loser);
+      return;
+    }
     const opponent = room.seats[loser === 0 ? 1 : 0];
     // spec-15 B5: с ботом — без техпоражения, некому показывать результат.
     if (
@@ -562,8 +595,36 @@ export class RoomManager {
       this.close(room, 'player_left');
       return;
     }
-    room.match = forfeitMatch(room.match, loser);
-    room.ready = [false, false];
+    room.match = forfeitMatch(room.match, teamOf(loser, 2));
+    room.ready.fill(false);
+    this.clearTimers(room);
+    this.rooms.delete(room.id);
+    this.opts.onForfeit(room, loser);
+  }
+
+  /** spec-17 Q13, Q14: истёк таймаут места `loser` в комнате 2×2. */
+  private expireTeam(room: Room, loser: PlayerIndex): void {
+    // Q13: в ожидании место не-создателя освобождается, ссылка снова принимает игрока.
+    if (room.round === null) {
+      if (loser === 0) {
+        this.close(room, 'player_left');
+        return;
+      }
+      room.seats[loser] = null;
+      this.opts.onSeatFreed?.(room);
+      return;
+    }
+    const team = teamOf(loser, 4);
+    const opponentsOnline = teamSeats(team === 0 ? 1 : 0, 4).some(
+      (s) => room.seats[s]?.socketId != null,
+    );
+    if (!room.match || room.match.winner !== null || !opponentsOnline) {
+      this.close(room, 'player_left');
+      return;
+    }
+    // Q14: техпоражение команды ушедшего.
+    room.match = forfeitMatch(room.match, team, loser);
+    room.ready.fill(false);
     this.clearTimers(room);
     this.rooms.delete(room.id);
     this.opts.onForfeit(room, loser);

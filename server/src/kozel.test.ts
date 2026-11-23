@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PlayerIndex, RoomStatePayload } from '@domino/shared';
+import type { RoomStatePayload } from '@domino/shared';
 import {
   emitAck,
   emitRawAck,
@@ -36,7 +36,7 @@ async function playRound(a: TestSocket, b: TestSocket, start: Pair): Promise<Pai
   let states = start;
   for (let moves = 0; states[0].phase === 'playing'; moves++) {
     expect(moves).toBeLessThan(MAX_MOVES);
-    const current: PlayerIndex = states[0].game!.currentPlayer;
+    const current = states[0].game!.currentPlayer as 0 | 1;
     const move = states[current].game!.legalMoves[0]!;
     const next = Promise.all([nextState(a), nextState(b)]);
     expect(await emitAck(sockets[current], 'game:move', { move })).toEqual({ ok: true });
@@ -56,7 +56,8 @@ describe('rules variant «Козёл» over sockets (spec-16)', () => {
     expect(await emitAck(c, 'room:info', { roomId })).toEqual({
       ok: true,
       roomId,
-      settings: { matchTarget: 101, handSize: 7, turnSeconds: 60, variant: 'kozel' },
+      settings: { matchTarget: 101, handSize: 7, turnSeconds: 60, variant: 'kozel', mode: '1x1' },
+      freeSeats: 0,
     });
   });
 

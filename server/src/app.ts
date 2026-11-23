@@ -89,6 +89,7 @@ export function startServer(opts: StartServerOptions): Promise<RunningServer> {
     onForfeit: (room, loser) => notifyForfeit(io, room, loser),
     allowedTurnSeconds,
     onAutoMove: (room) => broadcastState(io, room),
+    onSeatFreed: (room) => broadcastState(io, room),
     botDelayMs: (kind) => opts.botDelayMs ?? defaultBotDelayMs(kind),
     onBotMove: (room) => broadcastState(io, room),
   });

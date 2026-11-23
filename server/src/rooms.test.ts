@@ -37,6 +37,7 @@ describe('rooms', () => {
       matchTarget: 101,
       handSize: 7,
       variant: 'classic',
+      mode: '1x1',
       turnTimer: null,
     });
   });
@@ -134,7 +135,7 @@ describe('rooms', () => {
     expect(first.roomId).not.toBe(second.roomId);
 
     const mover = first.start[0].game!.currentPlayer === 0 ? first.a : first.b;
-    const move = first.start[first.start[0].game!.currentPlayer]!.game!.legalMoves[0]!;
+    const move = first.start[first.start[0].game!.currentPlayer as 0 | 1]!.game!.legalMoves[0]!;
     const quiet = Promise.all([expectNoState(second.a), expectNoState(second.b)]);
     const updated = nextState(first.a);
     expect(await emitAck(mover, 'game:move', { move })).toEqual({ ok: true });
@@ -258,7 +259,7 @@ describe('disconnect and rejoin', () => {
 
     // Второй сокет играет.
     const mover = start[0].game!.currentPlayer === 0 ? a : b2;
-    const move = start[start[0].game!.currentPlayer]!.game!.legalMoves[0]!;
+    const move = start[start[0].game!.currentPlayer as 0 | 1]!.game!.legalMoves[0]!;
     expect(await emitAck(mover, 'game:move', { move })).toEqual({ ok: true });
   });
 

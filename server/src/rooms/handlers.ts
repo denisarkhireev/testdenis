@@ -13,9 +13,10 @@ import {
   type SocketData,
 } from '@domino/shared';
 import type { Server, Socket } from 'socket.io';
-import { roomPhase, type Room, type RoomManager } from './RoomManager';
+import { roomPhase, seatIndexes, type Room, type RoomManager } from './RoomManager';
 import {
   isObject,
+  parseMode,
   parseMove,
   parseName,
   parseOpponent,
@@ -51,7 +52,7 @@ export function toRoomState(
     roomId: room.id,
     you,
     phase: roomPhase(room),
-    players: ([0, 1] as const).flatMap((seat) => {
+    players: seatIndexes(room).flatMap((seat) => {
       const state = room.seats[seat];
       if (!state) return [];
       // spec-15 B8: бот всегда «подключён».
@@ -63,11 +64,12 @@ export function toRoomState(
       return [{ seat, name: state.name, connected, reconnectRemainingMs, bot: state.bot }];
     }),
     game: room.round ? toPlayerView(room.round, you) : null,
-    match: room.match ? { ...room.match, ready: [room.ready[0], room.ready[1]] } : null,
+    match: room.match ? { ...room.match, ready: [...room.ready] } : null,
     turnSeconds: room.turnSeconds,
     matchTarget: room.matchTarget,
     handSize: room.handSize,
     variant: room.variant,
+    mode: room.mode,
     turnTimer: toTurnTimerView(room, now),
   };
 }
@@ -89,7 +91,7 @@ function socketById(io: GameServer, id: string | null): GameSocket | undefined {
 
 /** Каждому подключённому игроку — свой room:state (широковещательный emit запрещён). */
 export function broadcastState(io: GameServer, room: Room): void {
-  for (const seat of [0, 1] as const) {
+  for (const seat of seatIndexes(room)) {
     const socket = socketById(io, room.seats[seat]?.socketId ?? null);
     socket?.emit('room:state', toRoomState(room, seat));
   }
@@ -97,7 +99,7 @@ export function broadcastState(io: GameServer, room: Room): void {
 
 /** spec-12 RX6: реакция — каждому подключённому месту по отдельности, включая отправителя. */
 function emitReaction(io: GameServer, room: Room, reaction: RoomReactionPayload): void {
-  for (const seat of [0, 1] as const) {
+  for (const seat of seatIndexes(room)) {
     socketById(io, room.seats[seat]?.socketId ?? null)?.emit('room:reaction', reaction);
   }
 }
@@ -119,7 +121,7 @@ export function notifyRoomClosed(io: GameServer, room: Room, reason: RoomClosedR
 }
 
 /**
- * Обработчик onForfeit для RoomManager (RC5): оставшемуся — финальный room:state с техпоражением,
+ * Обработчик onForfeit для RoomManager (RC5, spec-17 Q14): оставшимся — финальный room:state с техпоражением,
  * затем его сокет отвязывается. Без room:closed.
  */
 export function notifyForfeit(io: GameServer, room: Room, loser: PlayerIndex): void {
@@ -174,16 +176,29 @@ export function registerRoomHandlers(io: GameServer, rooms: RoomManager): void {
         const handSize = parseOption(payload.handSize, HAND_SIZE_OPTIONS, DEFAULT_HAND_SIZE);
         const opponent = parseOpponent(payload.opponent);
         const variant = parseVariant(payload.variant);
-        if (!turnSeconds.ok || !matchTarget.ok || !handSize.ok || !opponent.ok || !variant.ok) {
+        const mode = parseMode(payload.mode);
+        if (
+          !turnSeconds.ok ||
+          !matchTarget.ok ||
+          !handSize.ok ||
+          !opponent.ok ||
+          !variant.ok ||
+          !mode.ok
+        ) {
           return ack({ ok: false, error: 'INVALID_PAYLOAD' });
         }
 
         const vsBot = opponent.value === 'bot';
+        // spec-17 Q11: в 2×2 нет бота и рука только из 7 костей.
+        if (mode.value === '2x2' && (vsBot || handSize.value !== DEFAULT_HAND_SIZE)) {
+          return ack({ ok: false, error: 'INVALID_PAYLOAD' });
+        }
         const settings = {
           turnSeconds: turnSeconds.value,
           matchTarget: matchTarget.value,
           handSize: handSize.value,
           variant: variant.value,
+          mode: mode.value,
         };
         const result = vsBot
           ? rooms.createWithBot(socket.id, name.value, settings)
@@ -193,7 +208,7 @@ export function registerRoomHandlers(io: GameServer, rooms: RoomManager): void {
         socket.data.roomId = room.id;
         socket.data.seat = seat;
         console.info(
-          `room ${room.id} created${vsBot ? ' vs bot' : ''} (${room.variant}, target ${room.matchTarget}, hand ${room.handSize}, turn ${room.turnSeconds}s)`,
+          `room ${room.id} created${vsBot ? ' vs bot' : ''} (${room.mode}, ${room.variant}, target ${room.matchTarget}, hand ${room.handSize}, turn ${room.turnSeconds}s)`,
         );
         ack({ ok: true, roomId: room.id, seat, playerToken: token });
         broadcastState(io, room);
@@ -212,10 +227,10 @@ export function registerRoomHandlers(io: GameServer, rooms: RoomManager): void {
 
         const result = rooms.join(socket.id, roomId.value, name.value);
         if (!result.ok) return ack({ ok: false, error: result.error });
-        const { room, seat, token } = result.value;
+        const { room, seat, started, token } = result.value;
         socket.data.roomId = room.id;
         socket.data.seat = seat;
-        console.info(`room ${room.id} joined, round started`);
+        console.info(`room ${room.id} joined (seat ${seat})${started ? ', round started' : ''}`);
         ack({ ok: true, roomId: room.id, seat, playerToken: token });
         broadcastState(io, room);
       }),
@@ -230,7 +245,8 @@ export function registerRoomHandlers(io: GameServer, rooms: RoomManager): void {
         if (!roomId.ok) return ack({ ok: false, error: 'INVALID_PAYLOAD' });
         const result = rooms.info(roomId.value);
         if (!result.ok) return ack({ ok: false, error: result.error });
-        ack({ ok: true, roomId: roomId.value, settings: result.value });
+        const { freeSeats, ...settings } = result.value;
+        ack({ ok: true, roomId: roomId.value, settings, freeSeats });
       }),
     );
 

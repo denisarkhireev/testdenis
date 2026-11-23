@@ -1,10 +1,13 @@
 import {
+  DEFAULT_ROOM_MODE,
   DEFAULT_VARIANT,
   OPPONENTS,
+  ROOM_MODES,
   VARIANT_OPTIONS,
   type Move,
   type Opponent,
   type Pip,
+  type RoomMode,
   type Tile,
   type VariantId,
 } from '@domino/shared';
@@ -107,5 +110,13 @@ export function parseVariant(value: unknown): Parsed<VariantId> {
   if (value === undefined) return ok(DEFAULT_VARIANT);
   return typeof value === 'string' && VARIANT_OPTIONS.includes(value as VariantId)
     ? ok(value as VariantId)
+    : fail;
+}
+
+/** spec-17 Q11 (по образцу parseVariant): нет поля — '1x1'; иначе один из ROOM_MODES, прочее — fail. */
+export function parseMode(value: unknown): Parsed<RoomMode> {
+  if (value === undefined) return ok(DEFAULT_ROOM_MODE);
+  return typeof value === 'string' && ROOM_MODES.includes(value as RoomMode)
+    ? ok(value as RoomMode)
     : fail;
 }

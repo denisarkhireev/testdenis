@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { PlayerIndex, RoomReactionPayload, RoomStatePayload } from '@domino/shared';
+import type { RoomReactionPayload, RoomStatePayload } from '@domino/shared';
 import {
   createPlayingRoom,
   delay,
@@ -65,7 +65,7 @@ async function playRound(room: Room2): Promise<[RoomStatePayload, RoomStatePaylo
   let states = room.start;
   for (let moves = 0; states[0].phase !== 'finished'; moves++) {
     expect(moves).toBeLessThan(MAX_MOVES);
-    const current: PlayerIndex = states[0].game!.currentPlayer;
+    const current = states[0].game!.currentPlayer as 0 | 1;
     const move = states[current].game!.legalMoves[0]!;
     const next = Promise.all([nextState(room.a), nextState(room.b)]);
     expect(await emitAck(sockets[current], 'game:move', { move })).toEqual({ ok: true });

@@ -721,7 +721,7 @@ describe('RoomManager: reactions (spec-12)', () => {
     for (const id of ['привет', '👍', '', '__proto__', 'a'.repeat(10_000)]) {
       expect(rooms.react(room.id, 0, id)).toEqual({ ok: false, error: 'UNKNOWN_REACTION' });
     }
-    expect(room.seats[0].lastReactionAt).toBeNull();
+    expect(room.seats[0]!.lastReactionAt).toBeNull();
     expect(rooms.react(room.id, 0, 'fish').ok).toBe(true);
     expect(rooms.react(room.id, 0, 'привет')).toEqual({ ok: false, error: 'UNKNOWN_REACTION' });
   });
@@ -870,7 +870,14 @@ describe('RoomManager: room settings (spec-14)', () => {
     const id = created.value.room.id;
     expect(rooms.info(id)).toEqual({
       ok: true,
-      value: { matchTarget: 151, handSize: 6, turnSeconds: 30, variant: 'classic' },
+      value: {
+        matchTarget: 151,
+        handSize: 6,
+        turnSeconds: 30,
+        variant: 'classic',
+        mode: '1x1',
+        freeSeats: 1,
+      },
     });
     rooms.join('s1', id, 'B');
     expect(rooms.info(id)).toMatchObject({ ok: true, value: { matchTarget: 151 } });
@@ -973,9 +980,9 @@ describe('RoomManager: bot (spec-15)', () => {
     botRooms();
     const { room, seat, token } = withBot({ matchTarget: 51, handSize: 5, turnSeconds: 0 });
     expect(seat).toBe(0);
-    expect(token).toBe(room.seats[0].token);
+    expect(token).toBe(room.seats[0]!.token);
     expect(room.seats[1]).toMatchObject({ name: 'Бот', bot: true, socketId: null });
-    expect(room.seats[0].bot).toBe(false);
+    expect(room.seats[0]!.bot).toBe(false);
     expect(room.round).not.toBeNull();
     expect(room.round!.hands[0]).toHaveLength(5);
     expect(room.match).toMatchObject({ target: 51, scores: [0, 0], roundNumber: 1 });

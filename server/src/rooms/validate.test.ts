@@ -7,6 +7,7 @@ import {
   parseReactionId,
   parseRoomId,
   parseTurnSeconds,
+  parseMode,
   parseVariant,
 } from './validate';
 
@@ -105,6 +106,15 @@ describe('validate', () => {
     expect(parseVariant('kozel')).toEqual({ ok: true, value: 'kozel' });
     for (const bad of ['KOZEL', 'goat', '', null, 1, {}, ['kozel'], 'toString']) {
       expect(parseVariant(bad)).toEqual({ ok: false });
+    }
+  });
+
+  it("S-Q1: parseMode — undefined → '1x1'; '1x1'/'2x2' ok; anything else fails (spec-17)", () => {
+    expect(parseMode(undefined)).toEqual({ ok: true, value: '1x1' });
+    expect(parseMode('1x1')).toEqual({ ok: true, value: '1x1' });
+    expect(parseMode('2x2')).toEqual({ ok: true, value: '2x2' });
+    for (const bad of ['2X2', 4, null, '', '3x3', ['2x2'], {}]) {
+      expect(parseMode(bad)).toEqual({ ok: false });
     }
   });
 });

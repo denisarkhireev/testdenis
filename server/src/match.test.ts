@@ -3,7 +3,6 @@ import {
   applyMove,
   createMatch,
   startRound,
-  type PlayerIndex,
   type RoomStatePayload,
   type RoundState,
 } from '@domino/shared';
@@ -34,7 +33,7 @@ async function playRound(room: Room2): Promise<{ states: Pair; truth: RoundState
   let states: Pair = room.start;
   for (let moves = 0; states[0].phase !== 'finished'; moves++) {
     expect(moves).toBeLessThan(MAX_MOVES);
-    const current: PlayerIndex = states[0].game!.currentPlayer;
+    const current = states[0].game!.currentPlayer as 0 | 1;
     const move = states[current].game!.legalMoves[0]!;
     const local = applyMove(truth, current, move);
     if (!local.ok) throw new Error(`local simulation rejected move: ${local.error}`);
