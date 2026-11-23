@@ -16,6 +16,7 @@ export { compareOpening, createDoubleSix, isDouble, sameTile, tileKey, tilePips 
 export { deal, shuffle } from './deck';
 export { boardEnds, canPlace, placeTile } from './board';
 export { applyMove, getLegalMoves, startRound } from './round';
+export { pickAutoMove } from './autoMove';
 export type { StartRoundOptions } from './round';
 export { handPoints } from './scoring';
 export { toPlayerView } from './view';
