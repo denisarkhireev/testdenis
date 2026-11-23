@@ -6,7 +6,6 @@ import {
   startRound,
   tileKey,
   toPlayerView,
-  type PlayerIndex,
   type RoomStatePayload,
   type RoundState,
   type Tile,
@@ -65,7 +64,7 @@ function expectConfidential(payload: RoomStatePayload, truth: RoundState, tokens
 }
 
 describe('game loop', () => {
-  const ctx = useTestServer({ roundSeed: () => SEED, reconnectGraceMs: 300 });
+  const ctx = useTestServer({ roundSeed: () => SEED, reconnectTimeoutMs: 300 });
 
   it('G1: initial hands and turn match a local startRound with the same seed', async () => {
     const { start } = await createPlayingRoom(ctx);
@@ -75,7 +74,7 @@ describe('game loop', () => {
       expect(s.game!.hand).toEqual(round.hands[s.you]);
       expect(s.game!.currentPlayer).toBe(round.currentPlayer);
     }
-    const mover = start[round.currentPlayer];
+    const mover = start[round.currentPlayer as 0 | 1];
     const waiter = start[round.currentPlayer === 0 ? 1 : 0];
     expect(mover.game!.legalMoves).toEqual(getLegalMoves(round));
     expect(mover.game!.legalMoves).toHaveLength(1);
@@ -85,7 +84,7 @@ describe('game loop', () => {
 
   it('G2: a legal move is applied and the turn passes', async () => {
     const { a, b, start } = await createPlayingRoom(ctx);
-    const current = start[0].game!.currentPlayer;
+    const current = start[0].game!.currentPlayer as 0 | 1;
     const mover = current === 0 ? a : b;
     const updatedA = nextState(a);
     const updatedB = nextState(b);
@@ -99,7 +98,7 @@ describe('game loop', () => {
 
   it('G3: move out of turn → NOT_YOUR_TURN and no room:state', async () => {
     const { a, b, start } = await createPlayingRoom(ctx);
-    const current = start[0].game!.currentPlayer;
+    const current = start[0].game!.currentPlayer as 0 | 1;
     const waiter = current === 0 ? b : a;
     const quiet = Promise.all([expectNoState(a), expectNoState(b)]);
     const move = start[current].game!.legalMoves[0]!;
@@ -112,7 +111,7 @@ describe('game loop', () => {
 
   it('G4: first move with a non-opening tile → MUST_PLAY_OPENING_TILE', async () => {
     const { a, b, start } = await createPlayingRoom(ctx);
-    const current = start[0].game!.currentPlayer;
+    const current = start[0].game!.currentPlayer as 0 | 1;
     const opening = start[current].game!.legalMoves[0]!;
     if (opening.type !== 'play') throw new Error('opening move must be a play');
     const other = start[current].game!.hand.find((t) => !sameTile(t, opening.tile))!;
@@ -138,7 +137,7 @@ describe('game loop', () => {
 
   it('G6: malformed moves → INVALID_PAYLOAD, state unchanged', async () => {
     const { a, b, start } = await createPlayingRoom(ctx);
-    const current = start[0].game!.currentPlayer;
+    const current = start[0].game!.currentPlayer as 0 | 1;
     const mover: TestSocket = current === 0 ? a : b;
     const quiet = Promise.all([expectNoState(a), expectNoState(b)]);
     const invalid = { ok: false, error: 'INVALID_PAYLOAD' };
@@ -172,7 +171,7 @@ describe('game loop', () => {
 
     while (states[0].phase !== 'finished') {
       expect(moves).toBeLessThan(MAX_MOVES);
-      const current: PlayerIndex = states[0].game!.currentPlayer;
+      const current = states[0].game!.currentPlayer as 0 | 1;
       const move = states[current].game!.legalMoves[0]!;
       const local = applyMove(truth, current, move);
       if (!local.ok) throw new Error(`local simulation rejected move: ${local.error}`);

@@ -10,6 +10,9 @@ export const ROOM_ERROR_TEXT: Record<RoomErrorCode, string> = {
   INVALID_TOKEN: 'Не удалось вернуться в игру',
 };
 
+/** spec-17 §4.3: ROOM_FULL при входе в комнату 2×2. */
+export const TEAM_ROOM_FULL_TEXT = 'Все четыре места уже заняты';
+
 export const TIMEOUT_TEXT = 'Сервер не отвечает, попробуйте ещё раз';
 
 /** L9: любая неудача авто-возврата. */

@@ -1,17 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   PROTOCOL_VERSION,
+  type Opponent,
   type RoomClosedPayload,
   type RoomClosedReason,
+  type RoomCreatePayload,
+  type RoomSettings,
   type RoomStatePayload,
   type ServerHelloPayload,
 } from '@domino/shared';
 import type { ClientSocket } from '../socket';
 import type { ConnectionStatus } from '../useConnectionStatus';
-import { REJOIN_FAILED_TEXT, ROOM_ERROR_TEXT, TIMEOUT_TEXT } from './errors';
+import { REJOIN_FAILED_TEXT, ROOM_ERROR_TEXT, TEAM_ROOM_FULL_TEXT, TIMEOUT_TEXT } from './errors';
 import { parseRoomIdFromSearch } from './invite';
-import { createRoom, joinRoom, rejoinRoom, type JoinResult } from './roomApi';
-import { clearSession, loadSession, saveName, saveSession, type Session } from './storage';
+import { createRoom, joinRoom, rejoinRoom, roomInfo, type JoinResult } from './roomApi';
+import {
+  clearSession,
+  dropLegacySession,
+  loadSession,
+  saveName,
+  saveSession,
+  type Session,
+} from './storage';
 
 export type Pending = 'create' | 'join' | 'rejoin';
 
@@ -25,8 +35,12 @@ export interface LobbyState {
   pending: Pending | null;
   /** Текст form-error. */
   error: string | null;
-  /** ROOM_NOT_FOUND на join. */
+  /** ROOM_NOT_FOUND на join или room:info. */
   badLink: boolean;
+  /** spec-14 S7: настройки комнаты по ссылке (room:info) до входа; null — ответа нет. */
+  roomInfo: RoomSettings | null;
+  /** spec-17: свободных мест по room:info; null — ответа нет (или старый сервер). */
+  freeSeats?: number | null;
 }
 
 export type Screen = 'closed' | 'game' | 'waiting' | 'restoring' | 'bad-link' | 'join' | 'home';
@@ -42,6 +56,12 @@ export function selectScreen(s: LobbyState): Screen {
 
 export const NAME_MAX_LENGTH = 20;
 
+/** spec-17: поля настроек для room:create — `mode` только для 2×2, тогда без `handSize`. */
+function createSettings(settings: RoomSettings): Omit<RoomCreatePayload, 'name'> {
+  const { mode, handSize, ...rest } = settings;
+  return mode === '2x2' ? { ...rest, mode } : { ...rest, handSize };
+}
+
 export function isValidName(name: string): boolean {
   const length = name.trim().length;
   return length >= 1 && length <= NAME_MAX_LENGTH;
@@ -55,22 +75,25 @@ const HOME_STATE: LobbyState = {
   pending: null,
   error: null,
   badLink: false,
+  roomInfo: null,
 };
 
-/** Начальное состояние по URL и sessionStorage (L10: сессия важнее ?room, но только для того же кода). */
+/**
+ * RC11: начальное состояние по URL и localStorage. Есть токен для `?room=X` этого браузера —
+ * возвращаемся на своё место (restoring → rejoin на hello); нет — экран входа. Без `?room` — главная.
+ */
 function initLobbyState(): LobbyState {
+  dropLegacySession();
   const urlRoom = parseRoomIdFromSearch(window.location.search);
-  let session = loadSession();
-  if (session && urlRoom !== null && session.roomId !== urlRoom) {
-    clearSession();
-    session = null;
-  }
+  const session = urlRoom !== null && urlRoom !== 'invalid' ? loadSession(urlRoom) : null;
   return { ...HOME_STATE, urlRoom, session };
 }
 
 export interface Lobby {
   state: LobbyState;
-  create(name: string): Promise<void>;
+  /** spec-11, spec-14: настройки комнаты — цель матча, костей в руке, время на ход. */
+  /** spec-15: `opponent = 'bot'` — второе место сразу занимает бот, экран ожидания не нужен. */
+  create(name: string, settings: RoomSettings, opponent?: Opponent): Promise<void>;
   join(name: string): Promise<void>;
   goHome(): void;
 }
@@ -82,6 +105,11 @@ export function useLobby(socket: ClientSocket, status: ConnectionStatus): Lobby 
   const pendingRef = useRef<Pending | null>(null);
   const rejoinSeqRef = useRef(0);
   const mountedRef = useRef(true);
+  // Актуальное состояние для goHome (обработчик клика).
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -90,18 +118,24 @@ export function useLobby(socket: ClientSocket, status: ConnectionStatus): Lobby 
     };
   }, []);
 
-  const dropSession = useCallback(() => {
-    clearSession();
+  const dropSession = useCallback((roomId: string) => {
+    clearSession(roomId);
     sessionRef.current = null;
   }, []);
 
   useEffect(() => {
     const onState = (payload: RoomStatePayload) => {
+      // RC12: техпоражение — партия окончена навсегда, комнаты на сервере уже нет;
+      // переподключение не должно делать rejoin. Экран — по этому последнему room:state.
+      if (payload.match?.forfeit != null) dropSession(payload.roomId);
       setState((s) => ({ ...s, room: payload, closed: null }));
     };
 
     const onClosed = (payload: RoomClosedPayload) => {
-      dropSession();
+      // RC12/RC13: при `replaced` токеном пользуется другая вкладка этого браузера — запись
+      // в localStorage остаётся, эта вкладка только забывает сессию и больше не делает rejoin.
+      if (payload.reason === 'replaced') sessionRef.current = null;
+      else dropSession(payload.roomId);
       rejoinSeqRef.current += 1;
       pendingRef.current = null;
       setState((s) => ({ ...s, session: null, room: null, closed: payload.reason, pending: null }));
@@ -122,7 +156,7 @@ export function useLobby(socket: ClientSocket, status: ConnectionStatus): Lobby 
         setState((s) => ({ ...s, pending: null }));
         return;
       }
-      dropSession();
+      dropSession(session.roomId);
       setState((s) => ({
         ...s,
         session: null,
@@ -168,22 +202,75 @@ export function useLobby(socket: ClientSocket, status: ConnectionStatus): Lobby 
           // L3: URL создателя превращается в ссылку-приглашение.
           window.history.replaceState(null, '', `/?room=${result.roomId}`);
         }
-        setState((s) => ({ ...s, session, urlRoom: result.roomId, pending: null }));
+        setState((s) => ({
+          ...s,
+          session,
+          urlRoom: result.roomId,
+          pending: null,
+          roomInfo: null,
+        }));
       } else if (kind === 'join' && result.error === 'ROOM_NOT_FOUND') {
         setState((s) => ({ ...s, pending: null, badLink: true }));
       } else {
-        setState((s) => ({ ...s, pending: null, error: ROOM_ERROR_TEXT[result.error] }));
+        // spec-17 §4.3: в комнате 2×2 — свой текст «нет мест».
+        const teamFull = result.error === 'ROOM_FULL' && stateRef.current.roomInfo?.mode === '2x2';
+        const error = teamFull ? TEAM_ROOM_FULL_TEXT : ROOM_ERROR_TEXT[result.error];
+        setState((s) => ({ ...s, pending: null, error }));
       }
     },
     [status],
   );
 
   const create = useCallback(
-    (name: string) => submit('create', name, (n) => createRoom(socket, { name: n })),
+    (name: string, settings: RoomSettings, opponent: Opponent = 'human') =>
+      submit('create', name, (n) =>
+        // spec-15 §4.3: поле opponent — только для бота (запрос «с человеком» не меняется).
+        // spec-17: mode — только для 2×2 (запрос 1×1 прежний), в 2×2 без handSize.
+        createRoom(socket, {
+          name: n,
+          ...createSettings(settings),
+          ...(opponent === 'bot' ? { opponent } : {}),
+        }),
+      ),
     [submit, socket],
   );
 
   const urlRoom = state.urlRoom;
+
+  // spec-14 S7: на экране входа по ссылке — настройки комнаты до нажатия «Войти».
+  // Повторяется при каждом переходе в connected (новый hello после обрыва).
+  const onJoinScreen =
+    urlRoom !== null &&
+    urlRoom !== 'invalid' &&
+    state.session === null &&
+    state.room === null &&
+    state.closed === null &&
+    !state.badLink;
+  const infoSeqRef = useRef(0);
+  useEffect(() => {
+    if (!onJoinScreen || status !== 'connected' || urlRoom === null || urlRoom === 'invalid') {
+      return;
+    }
+    const seq = ++infoSeqRef.current;
+    void roomInfo(socket, { roomId: urlRoom }).then((result) => {
+      if (!mountedRef.current || seq !== infoSeqRef.current || result === 'timeout') return;
+      if (result.ok) {
+        setState((s) =>
+          s.urlRoom === urlRoom
+            ? { ...s, roomInfo: result.settings, freeSeats: result.freeSeats ?? null }
+            : s,
+        );
+      } else if (result.error === 'ROOM_NOT_FOUND') {
+        // Мёртвая ссылка распознаётся до ввода имени.
+        setState((s) =>
+          s.urlRoom === urlRoom && s.session === null ? { ...s, badLink: true, roomInfo: null } : s,
+        );
+      }
+    });
+    return () => {
+      infoSeqRef.current += 1;
+    };
+  }, [onJoinScreen, status, socket, urlRoom]);
   const join = useCallback(
     async (name: string) => {
       if (urlRoom === null || urlRoom === 'invalid') return;
@@ -193,7 +280,10 @@ export function useLobby(socket: ClientSocket, status: ConnectionStatus): Lobby 
   );
 
   const goHome = useCallback(() => {
-    dropSession();
+    const current = stateRef.current;
+    const roomId = current.room?.roomId ?? current.session?.roomId ?? sessionRef.current?.roomId;
+    if (roomId !== undefined && current.closed !== 'replaced') dropSession(roomId);
+    sessionRef.current = null;
     rejoinSeqRef.current += 1;
     pendingRef.current = null;
     window.history.replaceState(null, '', '/');

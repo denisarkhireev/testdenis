@@ -10,15 +10,22 @@ const base: LobbyState = {
   pending: null,
   error: null,
   badLink: false,
+  roomInfo: null,
 };
 
 const room = (phase: RoomStatePayload['phase']): RoomStatePayload => ({
   roomId: 'ABC234',
   you: 0,
   phase,
-  players: [{ seat: 0, name: 'Аня', connected: true }],
+  players: [{ seat: 0, name: 'Аня', connected: true, reconnectRemainingMs: null, bot: false }],
   game: null,
   match: null,
+  turnSeconds: 60,
+  matchTarget: 101,
+  handSize: 7,
+  variant: 'classic',
+  mode: '1x1',
+  turnTimer: null,
 });
 
 const session = { roomId: 'ABC234', playerToken: 't' };

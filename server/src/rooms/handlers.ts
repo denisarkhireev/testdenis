@@ -1,16 +1,32 @@
 import {
+  DEFAULT_HAND_SIZE,
+  DEFAULT_TURN_SECONDS,
+  HAND_SIZE_OPTIONS,
   toPlayerView,
   type ClientToServerEvents,
   type InterServerEvents,
   type PlayerIndex,
   type RoomClosedReason,
+  type RoomReactionPayload,
   type RoomStatePayload,
   type ServerToClientEvents,
   type SocketData,
 } from '@domino/shared';
 import type { Server, Socket } from 'socket.io';
-import { roomPhase, type Room, type RoomManager } from './RoomManager';
-import { isObject, parseMove, parseName, parseRoomId, parseToken } from './validate';
+import { roomPhase, seatIndexes, type Room, type RoomManager } from './RoomManager';
+import {
+  isObject,
+  parseMode,
+  parseMove,
+  parseName,
+  parseOpponent,
+  parseVariant,
+  parseOption,
+  parseReactionId,
+  parseRoomId,
+  parseToken,
+  parseTurnSeconds,
+} from './validate';
 
 export type GameServer = Server<
   ClientToServerEvents,
@@ -22,18 +38,50 @@ type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServer
 type EventName = keyof ClientToServerEvents;
 type AckOf<E extends EventName> = Parameters<ClientToServerEvents[E]>[1];
 
-/** Вид комнаты для игрока `you` (K11): своя рука, у соперника — только количество. */
-export function toRoomState(room: Room, you: PlayerIndex): RoomStatePayload {
+/**
+ * Вид комнаты для игрока `you` (K11): своя рука, у соперника — только количество.
+ * RC8: у отключённого места — остаток ожидания на момент `now`.
+ * spec-11 T10: остаток таймера хода — тоже на момент `now`; на паузе — замороженный.
+ */
+export function toRoomState(
+  room: Room,
+  you: PlayerIndex,
+  now: number = Date.now(),
+): RoomStatePayload {
   return {
     roomId: room.id,
     you,
     phase: roomPhase(room),
-    players: ([0, 1] as const).flatMap((seat) => {
+    players: seatIndexes(room).flatMap((seat) => {
       const state = room.seats[seat];
-      return state ? [{ seat, name: state.name, connected: state.socketId !== null }] : [];
+      if (!state) return [];
+      // spec-15 B8: бот всегда «подключён».
+      const connected = state.bot || state.socketId !== null;
+      const reconnectRemainingMs =
+        !connected && state.reconnectDeadline !== null
+          ? Math.max(0, state.reconnectDeadline - now)
+          : null;
+      return [{ seat, name: state.name, connected, reconnectRemainingMs, bot: state.bot }];
     }),
     game: room.round ? toPlayerView(room.round, you) : null,
-    match: room.match ? { ...room.match, ready: [room.ready[0], room.ready[1]] } : null,
+    match: room.match ? { ...room.match, ready: [...room.ready] } : null,
+    turnSeconds: room.turnSeconds,
+    matchTarget: room.matchTarget,
+    handSize: room.handSize,
+    variant: room.variant,
+    mode: room.mode,
+    turnTimer: toTurnTimerView(room, now),
+  };
+}
+
+function toTurnTimerView(room: Room, now: number): RoomStatePayload['turnTimer'] {
+  const timer = room.turnTimer;
+  if (timer === null) return null;
+  const paused = timer.deadline === null;
+  return {
+    seat: timer.seat,
+    remainingMs: paused ? (timer.pausedRemainingMs ?? 0) : Math.max(0, timer.deadline! - now),
+    paused,
   };
 }
 
@@ -43,9 +91,16 @@ function socketById(io: GameServer, id: string | null): GameSocket | undefined {
 
 /** Каждому подключённому игроку — свой room:state (широковещательный emit запрещён). */
 export function broadcastState(io: GameServer, room: Room): void {
-  for (const seat of [0, 1] as const) {
+  for (const seat of seatIndexes(room)) {
     const socket = socketById(io, room.seats[seat]?.socketId ?? null);
     socket?.emit('room:state', toRoomState(room, seat));
+  }
+}
+
+/** spec-12 RX6: реакция — каждому подключённому месту по отдельности, включая отправителя. */
+function emitReaction(io: GameServer, room: Room, reaction: RoomReactionPayload): void {
+  for (const seat of seatIndexes(room)) {
+    socketById(io, room.seats[seat]?.socketId ?? null)?.emit('room:reaction', reaction);
   }
 }
 
@@ -62,6 +117,19 @@ export function notifyRoomClosed(io: GameServer, room: Room, reason: RoomClosedR
     if (!socket) continue;
     socket.emit('room:closed', { roomId: room.id, reason });
     detach(socket);
+  }
+}
+
+/**
+ * Обработчик onForfeit для RoomManager (RC5, spec-17 Q14): оставшимся — финальный room:state с техпоражением,
+ * затем его сокет отвязывается. Без room:closed.
+ */
+export function notifyForfeit(io: GameServer, room: Room, loser: PlayerIndex): void {
+  console.info(`room ${room.id} forfeit (seat ${loser})`);
+  broadcastState(io, room);
+  for (const state of room.seats) {
+    const socket = socketById(io, state?.socketId ?? null);
+    if (socket) detach(socket);
   }
 }
 
@@ -95,13 +163,53 @@ export function registerRoomHandlers(io: GameServer, rooms: RoomManager): void {
         if (!isObject(payload)) return ack({ ok: false, error: 'INVALID_PAYLOAD' });
         const name = parseName(payload.name);
         if (!name.ok) return ack({ ok: false, error: 'INVALID_NAME' });
+        const turnSeconds = parseTurnSeconds(
+          payload.turnSeconds,
+          rooms.allowedTurnSeconds,
+          DEFAULT_TURN_SECONDS,
+        );
+        const matchTarget = parseOption(
+          payload.matchTarget,
+          rooms.allowedMatchTargets,
+          rooms.defaultMatchTarget,
+        );
+        const handSize = parseOption(payload.handSize, HAND_SIZE_OPTIONS, DEFAULT_HAND_SIZE);
+        const opponent = parseOpponent(payload.opponent);
+        const variant = parseVariant(payload.variant);
+        const mode = parseMode(payload.mode);
+        if (
+          !turnSeconds.ok ||
+          !matchTarget.ok ||
+          !handSize.ok ||
+          !opponent.ok ||
+          !variant.ok ||
+          !mode.ok
+        ) {
+          return ack({ ok: false, error: 'INVALID_PAYLOAD' });
+        }
 
-        const result = rooms.create(socket.id, name.value);
+        const vsBot = opponent.value === 'bot';
+        // spec-17 Q11: в 2×2 нет бота и рука только из 7 костей.
+        if (mode.value === '2x2' && (vsBot || handSize.value !== DEFAULT_HAND_SIZE)) {
+          return ack({ ok: false, error: 'INVALID_PAYLOAD' });
+        }
+        const settings = {
+          turnSeconds: turnSeconds.value,
+          matchTarget: matchTarget.value,
+          handSize: handSize.value,
+          variant: variant.value,
+          mode: mode.value,
+        };
+        const result = vsBot
+          ? rooms.createWithBot(socket.id, name.value, settings)
+          : rooms.create(socket.id, name.value, settings);
         if (!result.ok) return ack({ ok: false, error: result.error });
         const { room, seat, token } = result.value;
         socket.data.roomId = room.id;
         socket.data.seat = seat;
-        console.info(`room ${room.id} created`);
+        console.info(
+          `room ${room.id} created${vsBot ? ' vs bot' : ''} (${room.mode}, ${room.variant}, target ${room.matchTarget}, hand ${room.handSize}, turn ${room.turnSeconds}s)`,
+        );
         ack({ ok: true, roomId: room.id, seat, playerToken: token });
         broadcastState(io, room);
       }),
@@ -119,12 +227,26 @@ export function registerRoomHandlers(io: GameServer, rooms: RoomManager): void {
 
         const result = rooms.join(socket.id, roomId.value, name.value);
         if (!result.ok) return ack({ ok: false, error: result.error });
-        const { room, seat, token } = result.value;
+        const { room, seat, started, token } = result.value;
         socket.data.roomId = room.id;
         socket.data.seat = seat;
-        console.info(`room ${room.id} joined, round started`);
+        console.info(`room ${room.id} joined (seat ${seat})${started ? ', round started' : ''}`);
         ack({ ok: true, roomId: room.id, seat, playerToken: token });
         broadcastState(io, room);
+      }),
+    );
+
+    // spec-14 S7: предпросмотр настроек; сокет не привязывается, room:state не шлётся.
+    socket.on(
+      'room:info',
+      withAck('room:info', (payload, ack) => {
+        if (!isObject(payload)) return ack({ ok: false, error: 'INVALID_PAYLOAD' });
+        const roomId = parseRoomId(payload.roomId);
+        if (!roomId.ok) return ack({ ok: false, error: 'INVALID_PAYLOAD' });
+        const result = rooms.info(roomId.value);
+        if (!result.ok) return ack({ ok: false, error: result.error });
+        const { freeSeats, ...settings } = result.value;
+        ack({ ok: true, roomId: roomId.value, settings, freeSeats });
       }),
     );
 
@@ -190,6 +312,25 @@ export function registerRoomHandlers(io: GameServer, rooms: RoomManager): void {
           console.info(`room ${room.id} round ${room.match!.roundNumber} started`);
         } else console.info(`room ${room.id} ready (seat ${seat})`);
         broadcastState(io, room);
+      }),
+    );
+
+    socket.on(
+      'game:react',
+      withAck('game:react', (payload, ack) => {
+        if (!isObject(payload)) return ack({ ok: false, error: 'INVALID_PAYLOAD' });
+        const reactionId = parseReactionId(payload.reactionId);
+        if (!reactionId.ok) return ack({ ok: false, error: 'UNKNOWN_REACTION' });
+        const { roomId, seat } = socket.data;
+        if (roomId === undefined || seat === undefined) {
+          return ack({ ok: false, error: 'NOT_IN_ROOM' });
+        }
+
+        // Без логов на каждую реакцию (§4.2 п.6).
+        const result = rooms.react(roomId, seat, reactionId.value);
+        if (!result.ok) return ack({ ok: false, error: result.error });
+        ack({ ok: true });
+        emitReaction(io, result.value.room, result.value.reaction);
       }),
     );
 
