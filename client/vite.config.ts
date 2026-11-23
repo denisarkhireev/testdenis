@@ -3,6 +3,10 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    // spec-10 S1: звуки — отдельными хешированными файлами в assets/, не data-URL.
+    assetsInlineLimit: (file) => (file.endsWith('.mp3') ? false : undefined),
+  },
   server: {
     port: 5173,
     strictPort: true,

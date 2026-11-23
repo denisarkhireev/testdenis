@@ -1,0 +1,33 @@
+/* spec-9 RC14: плашка «Переподключение…» прилипает к верху и не сдвигает стол на узком экране. */
+.reconnecting-banner {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  background: #fff4d6;
+  border-bottom: 1px solid #e0b84f;
+  color: #6b4500;
+  text-align: center;
+}
+
+/* spec-10 B2–B3: шапка — заголовок слева, кнопка звука справа; кнопка в потоке под баннером. */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-header h1 {
+  min-width: 0;
+}
+
+.sound-toggle {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 0.5rem;
+  font-size: 1.25rem;
+  line-height: 1;
+}

@@ -1,6 +1,6 @@
 import type { GameErrorCode } from '@domino/shared';
 
-const DESYNC_TEXT = 'Так сходить нельзя — обновляем стол';
+export const DESYNC_TEXT = 'Так сходить нельзя — обновляем стол';
 const GENERIC_TEXT = 'Что-то пошло не так, попробуйте ещё раз';
 
 /** 3.4: исчерпывающий маппинг — новый код в протоколе ломает typecheck. */

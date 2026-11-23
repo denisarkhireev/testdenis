@@ -1,0 +1,116 @@
+/* spec-12: панель реакций и облачка. */
+
+/* Кнопка и панель встают в строку .controls (flex-wrap) как её собственные элементы. */
+.reactions {
+  display: contents;
+}
+
+/* Специфичнее `.controls button` (min-height: 40px). */
+.reactions .reaction-toggle,
+.reactions .reaction-button {
+  min-width: 44px;
+  min-height: 44px;
+  font: inherit;
+}
+
+.reaction-panel {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.reaction-button--emoji {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.reaction-error {
+  flex-basis: 100%;
+  min-height: 1.25em;
+  margin: 0;
+  color: #b00020;
+}
+
+.reaction-error:empty {
+  min-height: 0;
+}
+
+/* Якорь нулевой высоты: появление облачка не двигает раскладку стола. */
+.reaction-anchor {
+  position: relative;
+  height: 0;
+}
+
+.reaction-bubble {
+  position: absolute;
+  left: 50%;
+  z-index: 5;
+  max-width: 70vw;
+  padding: 0.375rem 0.75rem;
+  border: 1px solid #c9c2b1;
+  border-radius: 1rem;
+  background: #fffdf6;
+  color: #222;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 15%);
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.reaction-bubble--emoji {
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
+.reaction-bubble--phrase {
+  font-size: 1rem;
+  width: max-content;
+}
+
+/* Соперник сверху: облачко под его рукой, «хвост» вверх. */
+.reaction-bubble--opponent {
+  top: 0.5rem;
+}
+
+/* Своё облачко над своей рукой, «хвост» вниз. */
+.reaction-bubble--mine {
+  bottom: 0.5rem;
+}
+
+.reaction-bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  border: 0.4rem solid transparent;
+  transform: translateX(-50%);
+}
+
+.reaction-bubble--opponent::after {
+  bottom: 100%;
+  border-bottom-color: #c9c2b1;
+}
+
+.reaction-bubble--mine::after {
+  top: 100%;
+  border-top-color: #c9c2b1;
+}
+
+.reaction-bubble--animated {
+  animation: reaction-pop 150ms ease-out;
+}
+
+@keyframes reaction-pop {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.8);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+}

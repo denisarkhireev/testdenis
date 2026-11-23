@@ -65,3 +65,21 @@ export function parseMove(value: unknown): Parsed<Move> {
       return fail;
   }
 }
+
+/** spec-11 T1: целое из списка допустимых; нет поля — `fallback`. */
+export function parseTurnSeconds(
+  value: unknown,
+  allowed: readonly number[],
+  fallback: number,
+): Parsed<number> {
+  if (value === undefined) return ok(fallback);
+  if (typeof value !== 'number' || !Number.isInteger(value) || !allowed.includes(value)) {
+    return fail;
+  }
+  return ok(value);
+}
+
+/** spec-12 RX3: только «строка ли»; членство в REACTION_IDS проверяет RoomManager.react. */
+export function parseReactionId(value: unknown): Parsed<string> {
+  return typeof value === 'string' ? ok(value) : fail;
+}
