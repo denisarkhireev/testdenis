@@ -5,14 +5,9 @@
   overflow-wrap: anywhere;
 }
 
-.game-screen *,
-.game-screen *::before,
-.game-screen *::after {
-  box-sizing: border-box;
-}
-
 .players {
   display: flex;
+  min-width: 0;
   flex-wrap: wrap;
   gap: 0.25rem 1rem;
   margin: 0 0 0.5rem;
@@ -23,6 +18,17 @@
 .opponent-offline {
   margin: 0 0 0.5rem;
   color: #8a5300;
+}
+
+.opponent-offline [data-testid='opponent-countdown'] {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.forfeit-result {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
 }
 
 .game-table {
@@ -41,10 +47,26 @@
   font-weight: 600;
 }
 
+/* spec-13 UI4: длинные имена без пробелов переносятся. */
+.players li,
+.match-score,
+.match-score-names,
+.round-finished,
+.match-finished,
+.summary-hand-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .turn-indicator--mine {
   border-color: #2e7d32;
   background: #e3f4e4;
   color: #1b5e20;
+}
+
+/* spec-13 UI6: без связи — нейтральный вид, как не свой ход. */
+.turn-indicator[data-offline='true'] {
+  color: #616161;
 }
 
 .round-finished {
@@ -70,6 +92,12 @@
 
 .match-score-meta {
   color: #b0bec5;
+}
+
+/* spec-13 UI7: « · » между именами и каждой частью метаданных — только CSS. */
+.match-score-item::before {
+  content: '·';
+  margin: 0 0.35em;
 }
 
 /* spec-7: экран итогов раунда, одна колонка */
@@ -98,6 +126,7 @@
 
 .summary-hand {
   --tile-short: calc(var(--pip-unit) * 7);
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -191,8 +220,10 @@
   margin: 15% 0;
 }
 
-/* Рука соперника */
+/* Рука соперника. spec-13 UI9: строка — якорь облачка реакции соперника. */
 .opponent-hand {
+  position: relative;
+  min-height: 3.25rem;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -216,6 +247,9 @@
 /* Стол */
 .board {
   --tile-short: calc(var(--pip-unit) * 8);
+  /* spec-13 UI5: не шире контейнера — кости переносятся, растёт высота. */
+  max-width: 100%;
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -232,7 +266,7 @@
 }
 
 .end-button {
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 0.6rem;
   border: 2px dashed #ffeb3b;
   border-radius: 6px;
@@ -255,7 +289,7 @@
 }
 
 .controls button {
-  min-height: 40px;
+  min-height: 44px;
   font: inherit;
 }
 
@@ -311,5 +345,52 @@
 
   .hand {
     gap: 4px;
+  }
+}
+
+/* spec-10 AN1: подсказка композитору только на время полёта (класс снимается в onfinish). */
+.is-flying {
+  will-change: transform, opacity;
+  position: relative;
+  z-index: 1;
+}
+
+/* spec-11: таймер хода */
+.turn-timer-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.turn-timer {
+  display: inline-block;
+  min-width: 4.5em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 6px;
+  background: #eceff1;
+  color: #263238;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: center;
+}
+
+.turn-timer--paused {
+  color: #607d8b;
+}
+
+.turn-timer--urgent {
+  background: #fdecea;
+  color: #c62828;
+  animation: turn-timer-pulse 1s ease-in-out infinite;
+}
+
+@keyframes turn-timer-pulse {
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turn-timer--urgent {
+    animation: none;
   }
 }

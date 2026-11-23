@@ -1,0 +1,76 @@
+/* spec-13 UI2: базовые стили. Горизонтальный скролл не прячем через overflow-x — его не должно быть. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 0 16px 16px;
+}
+
+@media (min-width: 768px) {
+  main {
+    padding: 0 24px 24px;
+  }
+}
+
+/* spec-13 UI3: всё, что нажимают, — не ниже 44 px. */
+main button {
+  min-height: 44px;
+  font: inherit;
+}
+
+main input[type='text'],
+main input:not([type]) {
+  min-height: 44px;
+  padding: 0 0.5rem;
+  font: inherit;
+}
+
+/* spec-13 UI4: длинные слова без пробелов (имена, код комнаты) переносятся. */
+main h1,
+main h2,
+main p {
+  overflow-wrap: anywhere;
+}
+
+/* spec-9 RC14: плашка «Переподключение…» прилипает к верху и не сдвигает стол на узком экране. */
+.reconnecting-banner {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  background: #fff4d6;
+  border-bottom: 1px solid #e0b84f;
+  color: #6b4500;
+  text-align: center;
+}
+
+/* spec-10 B2–B3: шапка — заголовок слева, кнопка звука справа; кнопка в потоке под баннером. */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-header h1 {
+  min-width: 0;
+}
+
+.sound-toggle {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 0.5rem;
+  font-size: 1.25rem;
+  line-height: 1;
+}
