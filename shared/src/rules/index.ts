@@ -13,7 +13,7 @@ export type {
 } from './types';
 export { createRng } from './rng';
 export { compareOpening, createDoubleSix, isDouble, sameTile, tileKey, tilePips } from './tiles';
-export { deal, shuffle } from './deck';
+export { deal, HAND_SIZE, HAND_SIZES, shuffle } from './deck';
 export { boardEnds, canPlace, placeTile } from './board';
 export { applyMove, getLegalMoves, startRound } from './round';
 export { pickAutoMove } from './autoMove';

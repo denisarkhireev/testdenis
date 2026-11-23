@@ -22,11 +22,31 @@ export interface ServerHelloPayload {
    * Обычно [0, 30, 60]; с TURN_TIMER_TEST_SECONDS — плюс тестовое.
    */
   turnSecondsOptions: number[];
+  /** spec-14 S2: варианты цели матча, по возрастанию. Обычно [51, 101, 151]; с MATCH_TARGET — плюс тестовое. */
+  matchTargetOptions: number[];
+  /** spec-14 S3: цель по умолчанию (MATCH_TARGET ?? 101) — выбрана на экране создания, если нет сохранённой. */
+  defaultMatchTarget: number;
+  /** spec-14 S1: [5, 6, 7]. */
+  handSizeOptions: number[];
 }
 
 /** spec-11 T1: допустимые значения времени на ход, с. 0 — таймер выключен. */
 export const TURN_SECONDS_OPTIONS: readonly number[] = [0, 30, 60];
 export const DEFAULT_TURN_SECONDS = 60;
+
+/** spec-14 S2: стандартные цели матча. */
+export const MATCH_TARGET_OPTIONS: readonly number[] = [51, 101, 151];
+/** spec-14 S1: размеры руки (= HAND_SIZES), по умолчанию 7. */
+export const HAND_SIZE_OPTIONS: readonly number[] = [5, 6, 7];
+export const DEFAULT_HAND_SIZE = 7;
+
+/** spec-14 S1: настройки комнаты; задаются в room:create и не меняются до закрытия комнаты. */
+export interface RoomSettings {
+  matchTarget: number;
+  handSize: number;
+  /** spec-11 T1 */
+  turnSeconds: number;
+}
 
 /** Таймер текущего хода глазами игрока (spec-11 T2–T10). */
 export interface TurnTimerView {
@@ -61,6 +81,10 @@ export interface RoomStatePayload {
   match: MatchView | null;
   /** spec-11 T1: настройка комнаты, с; 0 — выкл. */
   turnSeconds: number;
+  /** spec-14 S8: цель матча комнаты, во всех фазах (в waiting match = null, а цель уже нужна). */
+  matchTarget: number;
+  /** spec-14 S8: размер руки комнаты. */
+  handSize: number;
   /** spec-11: null — таймер не идёт (T3). */
   turnTimer: TurnTimerView | null;
 }
@@ -106,6 +130,20 @@ export interface RoomCreatePayload {
   name: string;
   /** spec-11 T1: необязательно; нет — DEFAULT_TURN_SECONDS. Не из списка — INVALID_PAYLOAD. */
   turnSeconds?: number;
+  /** spec-14 S3: нет — defaultMatchTarget; не из matchTargetOptions — INVALID_PAYLOAD. */
+  matchTarget?: number;
+  /** spec-14 S3: нет — 7; не из HAND_SIZE_OPTIONS — INVALID_PAYLOAD. */
+  handSize?: number;
+}
+
+/** spec-14 S7: C→S, предпросмотр настроек комнаты до входа. */
+export interface RoomInfoPayload {
+  roomId: string;
+}
+
+export interface RoomInfoAck {
+  roomId: string;
+  settings: RoomSettings;
 }
 
 export interface RoomJoinPayload {
@@ -158,6 +196,11 @@ export interface ClientToServerEvents {
   'room:join': (
     payload: RoomJoinPayload,
     ack: (res: AckResult<RoomJoinedAck, RoomErrorCode>) => void,
+  ) => void;
+  /** spec-14 S7: настройки комнаты без входа в неё; без побочных эффектов. */
+  'room:info': (
+    payload: RoomInfoPayload,
+    ack: (res: AckResult<RoomInfoAck, RoomErrorCode>) => void,
   ) => void;
   'room:rejoin': (
     payload: RoomRejoinPayload,

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { boardEnds } from './board';
 import { applyMove, getLegalMoves, startRound } from './round';
 import { deckFrom, deepFreeze, makeState, pt } from './test-utils';
-import { createDoubleSix, tileKey } from './tiles';
+import { createRng } from './rng';
+import { compareOpening, createDoubleSix, isDouble, tileKey } from './tiles';
 import type { ApplyResult, RoundState, Tile } from './types';
 
 const keys = (tiles: readonly Tile[]) => tiles.map(tileKey).join(' ');
@@ -496,4 +497,83 @@ describe('end of round and scoring', () => {
     expect(next.result).toEqual({ reason: 'domino', winner: 0, points: 13, handPoints: [0, 13] });
     expect(boardEnds(next.board)).toEqual({ left: 1, right: 6 });
   });
+});
+
+describe('hand size (spec-14)', () => {
+  it('S5-1: hand 5 without doubles — opening is the highest tile by compareOpening', () => {
+    const hand0: Tile[] = [
+      [0, 1],
+      [0, 2],
+      [1, 3],
+      [2, 4],
+      [3, 5],
+    ];
+    const hand1: Tile[] = [
+      [0, 3],
+      [1, 4],
+      [2, 5],
+      [4, 6],
+      [1, 2],
+    ];
+    const s = startRound({ deck: deckFrom(hand0, hand1), handSize: 5 });
+    expect(s.hands[0]).toHaveLength(5);
+    expect(s.hands[1]).toHaveLength(5);
+    expect(s.boneyard).toHaveLength(18);
+    const best = [...hand0, ...hand1].reduce((a, b) => (compareOpening(b, a) > 0 ? b : a));
+    expect(tileKey(s.openingTile)).toBe(tileKey(best));
+    expect(tileKey(s.openingTile)).toBe('4-6');
+    expect(s.currentPlayer).toBe(1);
+    expect(getLegalMoves(s)).toEqual([{ type: 'play', tile: [4, 6], end: 'right' }]);
+  });
+
+  it('S5-1: hand 5 with a double — the highest double opens', () => {
+    const hand0: Tile[] = [
+      [0, 1],
+      [2, 2],
+      [1, 3],
+      [2, 4],
+      [3, 5],
+    ];
+    const hand1: Tile[] = [
+      [0, 3],
+      [1, 4],
+      [2, 5],
+      [4, 6],
+      [1, 1],
+    ];
+    const s = startRound({ deck: deckFrom(hand0, hand1), handSize: 5 });
+    expect(tileKey(s.openingTile)).toBe('2-2');
+    expect(s.currentPlayer).toBe(0);
+  });
+
+  it('S4: startRound passes handSize to deal; invalid hand size throws', () => {
+    expect(startRound({ seed: 3, handSize: 6 }).boneyard).toHaveLength(16);
+    expect(startRound({ seed: 3 })).toEqual(startRound({ seed: 3, handSize: 7 }));
+    expect(() => startRound({ seed: 3, handSize: 4 })).toThrow();
+    expect(() => startRound({ seed: 3, handSize: 8 })).toThrow();
+  });
+
+  it.each([[5], [6], [7]])(
+    'S5-2: hand %i — opening is the only legal move, random rounds finish keeping 28 tiles',
+    (h) => {
+      for (let seed = 1; seed <= 50; seed++) {
+        let s = startRound({ seed, handSize: h });
+        expect(getLegalMoves(s)).toEqual([{ type: 'play', tile: s.openingTile, end: 'right' }]);
+        const holdsDouble = [...s.hands[0], ...s.hands[1]].some(isDouble);
+        expect(isDouble(s.openingTile)).toBe(holdsDouble);
+        const rng = createRng(seed + 777);
+        for (let actions = 0; s.status === 'playing'; actions++) {
+          if (actions > 100) throw new Error(`seed ${seed}: round did not finish`);
+          const moves = getLegalMoves(s);
+          const move = moves[Math.floor(rng() * moves.length)];
+          if (!move) throw new Error(`seed ${seed}: no legal moves`);
+          s = expectOk(applyMove(s, s.currentPlayer, move));
+          const all = [...s.hands[0], ...s.hands[1], ...s.boneyard, ...s.board.map((p) => p.tile)];
+          expect(new Set(all.map(tileKey)).size).toBe(28);
+          expect(all).toHaveLength(28);
+        }
+        expect(s.result).not.toBeNull();
+      }
+    },
+  );
 });
