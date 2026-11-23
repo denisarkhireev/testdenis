@@ -88,3 +88,15 @@ h2 code {
   font-size: 0.85rem;
   color: #555;
 }
+
+/* spec-17: места комнаты 2×2 на экране ожидания */
+.waiting-seats {
+  margin: 0 0 0.75rem;
+  padding-left: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+.waiting-seat-free {
+  color: #666;
+  font-style: italic;
+}

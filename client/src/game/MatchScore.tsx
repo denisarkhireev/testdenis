@@ -2,10 +2,12 @@ import {
   DEFAULT_HAND_SIZE,
   DEFAULT_VARIANT,
   type MatchView,
+  type RoomMode,
   type RoomPlayer,
   type VariantId,
 } from '@domino/shared';
 import { variantLabel } from '../lobby/variant';
+import { teamName } from './team';
 
 export interface MatchScoreProps {
   match: MatchView;
@@ -16,6 +18,8 @@ export interface MatchScoreProps {
   handSize?: number;
   /** spec-16: вариант правил; показывается всегда, по умолчанию «Классика». */
   variant?: VariantId;
+  /** spec-17: в 2×2 — счёт команд «Аня и Вера 34 : 12 Боб и Гена», без «по h костей». */
+  mode?: RoomMode;
 }
 
 /** spec-7 §4.3.1: табло матча «Аня 34 : 12 Боб · до 101 · Раунд 3» (место 0 : место 1). */
@@ -25,8 +29,11 @@ export function MatchScore({
   turnSeconds = 0,
   handSize = DEFAULT_HAND_SIZE,
   variant = DEFAULT_VARIANT,
+  mode = '1x1',
 }: MatchScoreProps) {
+  const team = mode === '2x2';
   const name = (seat: 0 | 1) => {
+    if (team) return teamName(players, seat);
     const player = players.find((p) => p.seat === seat);
     if (!player) return '';
     // spec-15 §4.3: значок перед именем бота.
@@ -56,7 +63,7 @@ export function MatchScore({
         <span className="match-score-item">
           до <span data-testid="match-target">{match.target}</span>
         </span>
-        {handSize !== DEFAULT_HAND_SIZE && (
+        {!team && handSize !== DEFAULT_HAND_SIZE && (
           <span className="match-score-item" data-testid="hand-size-label">
             по {handSize} костей
           </span>

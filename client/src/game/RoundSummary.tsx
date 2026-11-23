@@ -148,7 +148,7 @@ export function RoundSummary({
             seat={seat}
             name={playerName(players, seat)}
             tiles={handOf(seat)}
-            points={result.handPoints[seat]}
+            points={result.handPoints[seat] ?? 0}
             bubble={seat === you ? mineBubble : opponentBubble}
           />
         ))}

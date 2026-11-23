@@ -13,12 +13,15 @@ export interface GameScreenProps {
   onHome: () => void;
 }
 
-/** spec-9 RC8: плашка «Соперник отключился, ждём… mm:ss» с обратным отсчётом. */
-function OpponentOffline({ remainingMs }: { remainingMs: number | null }) {
+/**
+ * spec-9 RC8: плашка «Соперник отключился, ждём… mm:ss» с обратным отсчётом.
+ * spec-17: в 2×2 — «{имя} отключился, ждём…».
+ */
+function OpponentOffline({ remainingMs, name }: { remainingMs: number | null; name?: string }) {
   const left = useCountdown(remainingMs);
   return (
     <p className="opponent-offline" data-testid="opponent-offline" role="status">
-      Соперник отключился, ждём…
+      {name === undefined ? 'Соперник' : name} отключился, ждём…
       {left !== null && (
         <>
           {' '}
@@ -34,7 +37,11 @@ function OpponentOffline({ remainingMs }: { remainingMs: number | null }) {
  * После техпоражения (spec-9 RC5) вместо стола — итог матча.
  */
 export function GameScreen({ room, socket, status, onHome }: GameScreenProps) {
-  const opponent = room.players.find((player) => player.seat !== room.you);
+  const team = room.mode === '2x2';
+  // spec-17 §4.3: в 2×2 плашка — для первого отключённого чужого места.
+  const opponent = team
+    ? room.players.find((player) => player.seat !== room.you && !player.connected)
+    : room.players.find((player) => player.seat !== room.you);
   const match = room.match;
   const forfeited = match !== null && match.forfeit != null;
 
@@ -53,7 +60,10 @@ export function GameScreen({ room, socket, status, onHome }: GameScreenProps) {
       ) : (
         <>
           {opponent && !opponent.connected && (
-            <OpponentOffline remainingMs={opponent.reconnectRemainingMs} />
+            <OpponentOffline
+              remainingMs={opponent.reconnectRemainingMs}
+              {...(team ? { name: opponent.name } : {})}
+            />
           )}
           {room.game && (
             <GameTable

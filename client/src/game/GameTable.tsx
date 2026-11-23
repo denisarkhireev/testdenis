@@ -15,6 +15,7 @@ import { canDraw, canPass } from './moves';
 import { OpponentHand } from './OpponentHand';
 import { MatchScore } from './MatchScore';
 import { RoundSummary } from './RoundSummary';
+import { TeamTable } from './TeamTable';
 import { TurnTimer } from './TurnTimer';
 import { useGameTable } from './useGameTable';
 import './game.css';
@@ -93,6 +94,25 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [selected, cancel]);
+
+  // spec-17: вид 4 мест — стол на четверых; путь 1×1 ниже не меняется.
+  if (game.handCounts) {
+    return (
+      <div className="game-table game-table--team" ref={tableRef}>
+        <TeamTable
+          room={room}
+          game={game}
+          match={match}
+          table={table}
+          reactions={reactions}
+          reactionPanel={reactionPanel}
+          turnTimer={turnTimer}
+          online={online}
+          canContinue={canContinue}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="game-table" ref={tableRef}>

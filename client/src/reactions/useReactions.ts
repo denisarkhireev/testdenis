@@ -24,8 +24,12 @@ export interface Bubble {
 type Who = 'mine' | 'opponent';
 export type Bubbles = Record<Who, Bubble | null>;
 
+/** spec-17: облачка по местам (2×2) — каждое место рисует своё. */
+export type SeatBubbles = Partial<Record<PlayerIndex, Bubble>>;
+
 export interface Reactions {
   bubbles: Bubbles;
+  bySeat: SeatBubbles;
   send(reactionId: ReactionId): void;
   canSend: boolean;
   error: string | null;
@@ -43,22 +47,24 @@ export function useReactions(
   status: ConnectionStatus,
 ): Reactions {
   const [bubbles, setBubbles] = useState<Bubbles>({ mine: null, opponent: null });
+  const [bySeat, setBySeat] = useState<SeatBubbles>({});
   const [pending, setPending] = useState(false);
   const [cooldown, setCooldown] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pendingRef = useRef(false);
   const cooldownRef = useRef(false);
   const mountedRef = useRef(true);
-  const timers = useRef<Record<Who | 'cooldown' | 'error', Timer | null>>({
+  const timers = useRef<Record<string, Timer | null>>({
     mine: null,
     opponent: null,
     cooldown: null,
     error: null,
   });
 
-  const restart = useCallback((name: keyof typeof timers.current, ms: number, fn: () => void) => {
+  const restart = useCallback((name: string, ms: number, fn: () => void) => {
     const all = timers.current;
-    if (all[name] !== null) clearTimeout(all[name]);
+    const running = all[name];
+    if (running != null) clearTimeout(running);
     all[name] = setTimeout(() => {
       all[name] = null;
       fn();
@@ -70,8 +76,9 @@ export function useReactions(
     const all = timers.current;
     return () => {
       mountedRef.current = false;
-      for (const key of Object.keys(all) as (keyof typeof all)[]) {
-        if (all[key] !== null) clearTimeout(all[key]);
+      for (const key of Object.keys(all)) {
+        const running = all[key];
+        if (running != null) clearTimeout(running);
         all[key] = null;
       }
     };
@@ -82,6 +89,15 @@ export function useReactions(
       const who: Who = seat === you ? 'mine' : 'opponent';
       setBubbles((b) => ({ ...b, [who]: { reactionId, seq } }));
       restart(who, REACTION_SHOW_MS, () => setBubbles((b) => ({ ...b, [who]: null })));
+      // spec-17: то же облачко — за местом (для стола на четверых).
+      setBySeat((b) => ({ ...b, [seat]: { reactionId, seq } }));
+      restart(`seat-${seat}`, REACTION_SHOW_MS, () =>
+        setBySeat((b) => {
+          const next = { ...b };
+          delete next[seat];
+          return next;
+        }),
+      );
     };
     socket.on('room:reaction', onReaction);
     return () => {
@@ -105,7 +121,8 @@ export function useReactions(
             cooldownRef.current = false;
             setCooldown(false);
           });
-          if (timers.current.error !== null) clearTimeout(timers.current.error);
+          const errorTimer = timers.current.error;
+          if (errorTimer != null) clearTimeout(errorTimer);
           timers.current.error = null;
           setError(null);
           return;
@@ -119,6 +136,7 @@ export function useReactions(
 
   return {
     bubbles,
+    bySeat,
     send,
     canSend: status === 'connected' && !pending && !cooldown,
     error,

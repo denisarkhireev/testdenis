@@ -22,6 +22,7 @@ function roomState(patch: Partial<RoomStatePayload> = {}): RoomStatePayload {
     matchTarget: 101,
     handSize: 7,
     variant: 'classic',
+    mode: '1x1',
     turnTimer: null,
     ...patch,
   };

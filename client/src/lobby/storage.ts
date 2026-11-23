@@ -1,4 +1,4 @@
-import { VARIANT_OPTIONS, type VariantId } from '@domino/shared';
+import { ROOM_MODES, VARIANT_OPTIONS, type RoomMode, type VariantId } from '@domino/shared';
 
 /**
  * spec-9 RC10: токены мест живут в localStorage браузера, по одному на комнату, — так место
@@ -11,6 +11,7 @@ const TURN_SECONDS_KEY = 'domino:turnSeconds';
 const MATCH_TARGET_KEY = 'domino:matchTarget';
 const HAND_SIZE_KEY = 'domino:handSize';
 const VARIANT_KEY = 'domino:variant';
+const MODE_KEY = 'domino:mode';
 export const MAX_SESSIONS = 10;
 
 export interface Session {
@@ -161,6 +162,24 @@ export function loadVariant(): VariantId | null {
 export function saveVariant(variant: VariantId): void {
   try {
     localStorage.setItem(VARIANT_KEY, variant);
+  } catch {
+    // выбор — только подсказка на следующий раз
+  }
+}
+
+/** spec-17: последний выбранный режим (1 на 1 / 2 на 2); null — нет, не из ROOM_MODES или storage недоступен. */
+export function loadMode(): RoomMode | null {
+  try {
+    const raw = localStorage.getItem(MODE_KEY);
+    return raw !== null && ROOM_MODES.includes(raw as RoomMode) ? (raw as RoomMode) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveMode(mode: RoomMode): void {
+  try {
+    localStorage.setItem(MODE_KEY, mode);
   } catch {
     // выбор — только подсказка на следующий раз
   }

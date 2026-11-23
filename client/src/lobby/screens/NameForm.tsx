@@ -10,7 +10,9 @@ export interface NameFormProps {
   error: string | null;
   onSubmit(name: string): void;
   /** spec-15: вторая кнопка под основной (та же активность); Enter в поле — по-прежнему основная. */
-  secondary?: { label: string; testId: string; onSubmit(name: string): void } | undefined;
+  /** spec-17: `disabled` — кнопка недоступна независимо от имени (бот в режиме 2 на 2). */
+  secondary?:
+    { label: string; testId: string; disabled?: boolean; onSubmit(name: string): void } | undefined;
 }
 
 /** Общая форма home/join: Enter в поле = клик по кнопке. */
@@ -50,9 +52,9 @@ export function NameForm({
         <button
           type="button"
           data-testid={secondary.testId}
-          disabled={!enabled}
+          disabled={!enabled || secondary.disabled === true}
           onClick={() => {
-            if (enabled) secondary.onSubmit(name);
+            if (enabled && !secondary.disabled) secondary.onSubmit(name);
           }}
         >
           {secondary.label}

@@ -4,13 +4,14 @@ import {
   type Opponent,
   type RoomClosedPayload,
   type RoomClosedReason,
+  type RoomCreatePayload,
   type RoomSettings,
   type RoomStatePayload,
   type ServerHelloPayload,
 } from '@domino/shared';
 import type { ClientSocket } from '../socket';
 import type { ConnectionStatus } from '../useConnectionStatus';
-import { REJOIN_FAILED_TEXT, ROOM_ERROR_TEXT, TIMEOUT_TEXT } from './errors';
+import { REJOIN_FAILED_TEXT, ROOM_ERROR_TEXT, TEAM_ROOM_FULL_TEXT, TIMEOUT_TEXT } from './errors';
 import { parseRoomIdFromSearch } from './invite';
 import { createRoom, joinRoom, rejoinRoom, roomInfo, type JoinResult } from './roomApi';
 import {
@@ -38,6 +39,8 @@ export interface LobbyState {
   badLink: boolean;
   /** spec-14 S7: настройки комнаты по ссылке (room:info) до входа; null — ответа нет. */
   roomInfo: RoomSettings | null;
+  /** spec-17: свободных мест по room:info; null — ответа нет (или старый сервер). */
+  freeSeats?: number | null;
 }
 
 export type Screen = 'closed' | 'game' | 'waiting' | 'restoring' | 'bad-link' | 'join' | 'home';
@@ -52,6 +55,12 @@ export function selectScreen(s: LobbyState): Screen {
 }
 
 export const NAME_MAX_LENGTH = 20;
+
+/** spec-17: поля настроек для room:create — `mode` только для 2×2, тогда без `handSize`. */
+function createSettings(settings: RoomSettings): Omit<RoomCreatePayload, 'name'> {
+  const { mode, handSize, ...rest } = settings;
+  return mode === '2x2' ? { ...rest, mode } : { ...rest, handSize };
+}
 
 export function isValidName(name: string): boolean {
   const length = name.trim().length;
@@ -203,7 +212,10 @@ export function useLobby(socket: ClientSocket, status: ConnectionStatus): Lobby 
       } else if (kind === 'join' && result.error === 'ROOM_NOT_FOUND') {
         setState((s) => ({ ...s, pending: null, badLink: true }));
       } else {
-        setState((s) => ({ ...s, pending: null, error: ROOM_ERROR_TEXT[result.error] }));
+        // spec-17 §4.3: в комнате 2×2 — свой текст «нет мест».
+        const teamFull = result.error === 'ROOM_FULL' && stateRef.current.roomInfo?.mode === '2x2';
+        const error = teamFull ? TEAM_ROOM_FULL_TEXT : ROOM_ERROR_TEXT[result.error];
+        setState((s) => ({ ...s, pending: null, error }));
       }
     },
     [status],
@@ -213,7 +225,12 @@ export function useLobby(socket: ClientSocket, status: ConnectionStatus): Lobby 
     (name: string, settings: RoomSettings, opponent: Opponent = 'human') =>
       submit('create', name, (n) =>
         // spec-15 §4.3: поле opponent — только для бота (запрос «с человеком» не меняется).
-        createRoom(socket, { name: n, ...settings, ...(opponent === 'bot' ? { opponent } : {}) }),
+        // spec-17: mode — только для 2×2 (запрос 1×1 прежний), в 2×2 без handSize.
+        createRoom(socket, {
+          name: n,
+          ...createSettings(settings),
+          ...(opponent === 'bot' ? { opponent } : {}),
+        }),
       ),
     [submit, socket],
   );
@@ -238,7 +255,11 @@ export function useLobby(socket: ClientSocket, status: ConnectionStatus): Lobby 
     void roomInfo(socket, { roomId: urlRoom }).then((result) => {
       if (!mountedRef.current || seq !== infoSeqRef.current || result === 'timeout') return;
       if (result.ok) {
-        setState((s) => (s.urlRoom === urlRoom ? { ...s, roomInfo: result.settings } : s));
+        setState((s) =>
+          s.urlRoom === urlRoom
+            ? { ...s, roomInfo: result.settings, freeSeats: result.freeSeats ?? null }
+            : s,
+        );
       } else if (result.error === 'ROOM_NOT_FOUND') {
         // Мёртвая ссылка распознаётся до ввода имени.
         setState((s) =>

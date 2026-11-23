@@ -47,6 +47,9 @@ export function Lobby({
           roomId={state.room!.roomId}
           settings={state.room!}
           inviteUrl={buildInviteUrl(publicUrl ?? window.location.origin, state.room!.roomId)}
+          mode={state.room!.mode}
+          players={state.room!.players}
+          you={state.room!.you}
         />
       );
     case 'restoring':
@@ -58,6 +61,7 @@ export function Lobby({
         <JoinScreen
           roomId={state.urlRoom!}
           settings={state.roomInfo}
+          freeSeats={state.freeSeats ?? null}
           canSubmit={canSubmit}
           error={state.error}
           onJoin={(name) => void join(name)}

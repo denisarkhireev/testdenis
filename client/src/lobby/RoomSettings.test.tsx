@@ -173,6 +173,7 @@ describe('room settings in the waiting room and on the scoreboard (spec-14 S8)',
       matchTarget: 151,
       handSize: 6,
       variant: 'classic',
+      mode: '1x1',
       turnTimer: null,
     } satisfies RoomStatePayload);
     expect(byId('waiting-screen')).toBeInTheDocument();

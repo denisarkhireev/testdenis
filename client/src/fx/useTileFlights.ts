@@ -19,6 +19,8 @@ interface Rects {
   opponentLast: Box | null;
   opponentHand: Box | null;
   boneyard: Box | null;
+  /** spec-17: места стола 2×2 (`[data-seat]`) — последняя рубашка или весь блок места. */
+  seats: Map<string, Box>;
 }
 
 const EMPTY: Rects = {
@@ -27,6 +29,7 @@ const EMPTY: Rects = {
   opponentLast: null,
   opponentHand: null,
   boneyard: null,
+  seats: new Map(),
 };
 
 /** Центр и ширина; нулевой прямоугольник (элемент скрыт / jsdom) — null (AN6). */
@@ -56,7 +59,13 @@ function measure(root: HTMLElement, prev: Rects): Rects {
     if (box) hand.set(id, box);
   }
   const opponentLast = lastOf(root, '[data-testid="opponent-tile"]');
+  const seats = new Map<string, Box>();
+  for (const element of root.querySelectorAll('.seat-hand[data-seat]')) {
+    const box = boxOf(lastOf(element as HTMLElement, '.tile-back')) ?? boxOf(element);
+    if (box) seats.set(element.getAttribute('data-seat')!, box);
+  }
   return {
+    seats,
     handIds,
     hand,
     opponentLast: opponentLast?.classList.contains('is-flying')
@@ -78,10 +87,13 @@ function planFlights(root: HTMLElement, events: readonly TableEvent[], prev: Rec
   for (const event of events) {
     if (event.type === 'play') {
       const target = root.querySelector(`[data-testid="board-tile-${event.boardIndex}"]`);
+      // spec-17: чужой ход в 2×2 — из блока места; нет источника — кость просто появляется.
       const source =
         event.who === 'me'
           ? prev.hand.get(tileTestId(event.tile))
-          : (prev.opponentLast ?? prev.opponentHand);
+          : event.seat !== undefined
+            ? prev.seats.get(String(event.seat))
+            : (prev.opponentLast ?? prev.opponentHand);
       if (target && source) flights.push({ target, source, kind: 'play' });
     } else if (event.type === 'draw') {
       const target =

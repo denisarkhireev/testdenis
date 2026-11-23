@@ -24,6 +24,7 @@ const room = (phase: RoomStatePayload['phase']): RoomStatePayload => ({
   matchTarget: 101,
   handSize: 7,
   variant: 'classic',
+  mode: '1x1',
   turnTimer: null,
 });
 

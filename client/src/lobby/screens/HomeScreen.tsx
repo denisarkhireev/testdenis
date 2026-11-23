@@ -6,19 +6,24 @@ import {
   MATCH_TARGET,
   MATCH_TARGET_OPTIONS,
   TURN_SECONDS_OPTIONS,
+  DEFAULT_ROOM_MODE,
   DEFAULT_VARIANT,
+  ROOM_MODES,
   VARIANT_OPTIONS,
   type Opponent,
+  type RoomMode,
   type RoomSettings,
   type VariantId,
 } from '@domino/shared';
 import {
   loadHandSize,
   loadMatchTarget,
+  loadMode,
   loadTurnSeconds,
   loadVariant,
   saveHandSize,
   saveMatchTarget,
+  saveMode,
   saveTurnSeconds,
   saveVariant,
 } from '../storage';
@@ -77,6 +82,13 @@ function useChoice<T extends string | number>(
   return [selected, setChoice] as const;
 }
 
+/** spec-17 §4.3: подписи режима комнаты. */
+const MODE_LABELS: Record<RoomMode, string> = { '1x1': '1 на 1', '2x2': '2 на 2' };
+const modeLabel = (mode: RoomMode): string => MODE_LABELS[mode];
+
+/** spec-17 Q2: в 2×2 рука всегда из 7 костей. */
+const TEAM_HAND_SIZE = DEFAULT_HAND_SIZE;
+
 interface ChoiceGroupProps<T extends string | number> {
   /** testid группы; варианты — `<testId>-<value>`. */
   testId: string;
@@ -85,6 +97,8 @@ interface ChoiceGroupProps<T extends string | number> {
   selected: T;
   label(value: T): string;
   onChange(value: T): void;
+  /** spec-17: группа недоступна (размер руки в 2×2). */
+  disabled?: boolean;
 }
 
 function ChoiceGroup<T extends string | number>({
@@ -94,9 +108,10 @@ function ChoiceGroup<T extends string | number>({
   selected,
   label,
   onChange,
+  disabled = false,
 }: ChoiceGroupProps<T>) {
   return (
-    <fieldset className="lobby-choice" data-testid={testId} role="radiogroup">
+    <fieldset className="lobby-choice" data-testid={testId} role="radiogroup" disabled={disabled}>
       <legend>{legend}</legend>
       {options.map((value) => (
         <label key={value} className="lobby-option">
@@ -124,6 +139,8 @@ export function HomeScreen({
   handSizeOptions = HAND_SIZE_OPTIONS,
   onCreate,
 }: HomeScreenProps) {
+  const [mode, setMode] = useChoice<RoomMode>(ROOM_MODES, loadMode, DEFAULT_ROOM_MODE);
+  const team = mode === '2x2';
   const [variant, setVariant] = useChoice<VariantId>(VARIANT_OPTIONS, loadVariant, DEFAULT_VARIANT);
   const [matchTarget, setMatchTarget] = useChoice(
     matchTargetOptions,
@@ -138,16 +155,32 @@ export function HomeScreen({
   );
 
   const handleCreate = (name: string, opponent: Opponent) => {
+    saveMode(mode);
     saveVariant(variant);
     saveMatchTarget(matchTarget);
-    saveHandSize(handSize);
+    // spec-17: в 2×2 размер руки фиксирован — сохранённый выбор для 1×1 не трогаем.
+    if (!team) saveHandSize(handSize);
     saveTurnSeconds(turnSeconds);
-    onCreate(name, { matchTarget, handSize, turnSeconds, variant }, opponent);
+    const size = team ? TEAM_HAND_SIZE : handSize;
+    onCreate(name, { matchTarget, handSize: size, turnSeconds, variant, mode }, opponent);
   };
 
   return (
     <section data-testid="home-screen">
       <h2>Новая игра</h2>
+      <ChoiceGroup<RoomMode>
+        testId="mode-choice"
+        legend="Игроки"
+        options={ROOM_MODES}
+        selected={mode}
+        label={modeLabel}
+        onChange={setMode}
+      />
+      {team && (
+        <p className="lobby-hint" data-testid="mode-hint">
+          2 на 2: напарник напротив, по 7 костей, базара нет
+        </p>
+      )}
       <ChoiceGroup<VariantId>
         testId="variant-choice"
         legend="Правила"
@@ -171,9 +204,10 @@ export function HomeScreen({
         testId="hand-size-choice"
         legend="Костей в руке"
         options={handSizeOptions}
-        selected={handSize}
+        selected={team ? TEAM_HAND_SIZE : handSize}
         label={String}
         onChange={setHandSize}
+        disabled={team}
       />
       <ChoiceGroup<number>
         testId="turn-seconds"
@@ -192,6 +226,7 @@ export function HomeScreen({
         secondary={{
           label: 'Играть с ботом',
           testId: 'bot-button',
+          disabled: team,
           onSubmit: (name) => handleCreate(name, 'bot'),
         }}
       />
