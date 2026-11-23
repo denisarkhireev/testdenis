@@ -11,7 +11,7 @@ export interface TurnTimerProps {
 
 /**
  * Обратный отсчёт хода (spec-11). Клиент ничего не решает (T9): по нулю ход не делает —
- * сервер пришлёт новое состояние. На паузе показывает замороженный остаток статично.
+ * сервер пришлёт новое состояние. На паузе — «пауза mm:ss» статично (spec-13 UI8).
  */
 export function TurnTimer({ timer }: TurnTimerProps) {
   const counted = useCountdown(timer && !timer.paused ? timer.remainingMs : null);
@@ -28,9 +28,9 @@ export function TurnTimer({ timer }: TurnTimerProps) {
       data-paused={timer.paused ? 'true' : 'false'}
       role="timer"
       aria-live="off"
-      aria-label={`Осталось на ход: ${text}`}
+      aria-label={timer.paused ? `Таймер на паузе: ${text}` : `Осталось на ход: ${text}`}
     >
-      {timer.paused ? `⏸ ${text}` : text}
+      {timer.paused ? `пауза ${text}` : text}
     </span>
   );
 }

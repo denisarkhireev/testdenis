@@ -14,7 +14,7 @@ export function ClosedScreen({ reason, onHome }: ClosedScreenProps) {
   return (
     <section data-testid="closed-screen">
       <h2>{CLOSED_TEXT[reason]}</h2>
-      <button type="button" data-testid="home-button" onClick={onHome}>
+      <button type="button" className="home-button" data-testid="home-button" onClick={onHome}>
         На главную
       </button>
     </section>

@@ -17,13 +17,18 @@ export function MatchScore({ match, players, turnSeconds = 0 }: MatchScoreProps)
         {' : '}
         <strong data-testid="match-score-1">{match.scores[1]}</strong> {name(1)}
       </span>
+      {/* spec-13 UI7: разделитель « · » перед каждой частью рисует CSS. */}
       <span className="match-score-meta">
-        {' · до '}
-        <span data-testid="match-target">{match.target}</span>
-        {' · Раунд '}
-        <span data-testid="match-round">{match.roundNumber}</span>
+        <span className="match-score-item">
+          до <span data-testid="match-target">{match.target}</span>
+        </span>
+        <span className="match-score-item">
+          Раунд <span data-testid="match-round">{match.roundNumber}</span>
+        </span>
         {turnSeconds > 0 && (
-          <span data-testid="turn-seconds-label">{` · ход ${turnSeconds} с`}</span>
+          <span className="match-score-item" data-testid="turn-seconds-label">
+            ход {turnSeconds} с
+          </span>
         )}
       </span>
     </p>

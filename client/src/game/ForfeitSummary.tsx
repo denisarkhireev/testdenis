@@ -21,7 +21,7 @@ export function ForfeitSummary({ room, onHome }: ForfeitSummaryProps) {
       </p>
       <MatchScore match={room.match} players={room.players} />
       <div className="summary-actions">
-        <button type="button" data-testid="home-button" onClick={onHome}>
+        <button type="button" className="home-button" data-testid="home-button" onClick={onHome}>
           На главную
         </button>
       </div>

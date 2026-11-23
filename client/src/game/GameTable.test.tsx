@@ -257,6 +257,47 @@ describe('GameTable', () => {
     expect(fake.emitWithAck).not.toHaveBeenCalled();
   });
 
+  it('UI6: offline on my turn — no "your turn" highlight; it comes back on reconnect', () => {
+    const { fake } = setup();
+    const indicator = () => byId('turn-indicator');
+    expect(indicator()).toHaveClass('turn-indicator--mine');
+    expect(indicator()).not.toHaveAttribute('data-offline');
+
+    fake.serverEmit('disconnect', 'transport close');
+    expect(byId('connection-status')).toHaveTextContent('reconnecting');
+    expect(indicator()).not.toHaveClass('turn-indicator--mine');
+    expect(indicator()).toHaveAttribute('data-offline', 'true');
+    expect(indicator()).toHaveAttribute('data-my-turn', 'true');
+    expect(indicator()).toHaveTextContent('Ваш ход');
+    expect(byId('my-hand')).toHaveClass('hand--idle');
+    expect(document.querySelectorAll('[data-playable="true"]')).toHaveLength(0);
+
+    fake.serverEmit('server:hello', hello());
+    expect(indicator()).toHaveClass('turn-indicator--mine');
+    expect(indicator()).not.toHaveAttribute('data-offline');
+    expect(document.querySelectorAll('[data-playable="true"]').length).toBeGreaterThan(0);
+  });
+
+  it('UI9: reaction anchors — opponent in opponent-hand during the round, in the hands on summary', () => {
+    const { fake } = setup();
+    expect(byId('opponent-hand')).toContainElement(byId('reaction-anchor-opponent'));
+    fake.serverEmit(
+      'room:state',
+      makeRoom(
+        makeView({
+          status: 'finished',
+          currentPlayer: 1,
+          legalMoves: [],
+          opponentHand: [[1, 2]],
+          result: { reason: 'domino', winner: 0, points: 3, handPoints: [0, 3] },
+        }),
+      ),
+    );
+    expect(byId('round-summary')).toBeInTheDocument();
+    expect(byId('summary-hand-1')).toContainElement(byId('reaction-anchor-opponent'));
+    expect(byId('summary-hand-0')).toContainElement(byId('reaction-anchor-mine'));
+  });
+
   // GT-12 (баннер итога раунда) заменён экраном итогов: см. RoundSummary.test.tsx (S2–S4).
 
   it('GT-13: opponent-offline still works inside the table', () => {

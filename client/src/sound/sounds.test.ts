@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockAudio } from '../test/fx';
-import { createSoundPlayer } from './sounds';
+import { createSoundPlayer, PENDING_PLAY_MAX_MS } from './sounds';
 
 const urls = { tile: 'tile', draw: 'draw', turn: 'turn', roundEnd: 'round-end' };
 
@@ -66,5 +66,78 @@ describe('createSoundPlayer (spec-10 §3.3)', () => {
     player.play('tile');
     expect(started).toEqual([]);
     expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('createSoundPlayer pending play (spec-13 UI10)', () => {
+  /** Декодирование буферов ждёт `release()`; часы `now` двигает тест. */
+  function slowDecode() {
+    const audio = mockAudio();
+    let clock = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const proto = (globalThis as unknown as { AudioContext: { prototype: AudioContext } })
+      .AudioContext.prototype;
+    const decode = proto.decodeAudioData;
+    vi.spyOn(proto, 'decodeAudioData').mockImplementation(async function (
+      this: AudioContext,
+      ...args: Parameters<AudioContext['decodeAudioData']>
+    ) {
+      await gate;
+      return decode.apply(this, args);
+    });
+    return {
+      ...audio,
+      now: () => clock,
+      tick: (ms: number) => (clock += ms),
+      release,
+    };
+  }
+
+  it('UI10: play before the buffer is ready, ready in 100 ms → plays once', async () => {
+    const fx = slowDecode();
+    const player = createSoundPlayer({ urls, enabled: true, now: fx.now });
+    const loading = player.unlock();
+    player.play('tile');
+    expect(fx.started).toEqual([]);
+    fx.tick(100);
+    fx.release();
+    await loading;
+    expect(fx.started).toEqual(['tile']);
+  });
+
+  it('UI10: buffer ready after 200 ms → dropped; the wait is cleared', async () => {
+    const fx = slowDecode();
+    const player = createSoundPlayer({ urls, enabled: true, now: fx.now });
+    const loading = player.unlock();
+    player.play('tile');
+    fx.tick(PENDING_PLAY_MAX_MS + 50);
+    fx.release();
+    await loading;
+    expect(fx.started).toEqual([]);
+    player.play('tile');
+    expect(fx.started).toEqual(['tile']);
+  });
+
+  it('UI10: two calls before ready → one sound; disabled sound → nothing is queued', async () => {
+    const fx = slowDecode();
+    const player = createSoundPlayer({ urls, enabled: true, now: fx.now });
+    const loading = player.unlock();
+    player.play('tile');
+    fx.tick(100);
+    player.play('tile');
+    fx.tick(100);
+    fx.release();
+    await loading;
+    expect(fx.started).toEqual(['tile']);
+
+    const off = slowDecode();
+    const muted = createSoundPlayer({ urls, enabled: false, now: off.now });
+    const mutedLoading = muted.unlock();
+    muted.play('tile');
+    muted.setEnabled(true);
+    off.release();
+    await mutedLoading;
+    expect(off.started).toEqual([]);
   });
 });

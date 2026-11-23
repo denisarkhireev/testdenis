@@ -42,6 +42,8 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
   const { cancel, selected } = table;
   const opponentName = room.players.find((player) => player.seat !== game.you)?.name ?? '';
   const myTurn = game.currentPlayer === game.you;
+  // spec-13 UI6: без связи «Ваш ход» не подсвечивается (ходить всё равно нельзя).
+  const online = status === 'connected';
   const finished = game.status === 'finished' && game.result !== null;
   // spec-11: ровно один отсчёт — у игрока, чей ход.
   const turnTimer = finished ? null : (room.turnTimer ?? null);
@@ -96,9 +98,10 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
 
       {!finished && (
         <p
-          className={`turn-indicator${myTurn ? ' turn-indicator--mine' : ''}`}
+          className={`turn-indicator${myTurn && online ? ' turn-indicator--mine' : ''}`}
           data-testid="turn-indicator"
           data-my-turn={myTurn ? 'true' : 'false'}
+          data-offline={online ? undefined : 'true'}
           role="status"
         >
           {myTurn ? 'Ваш ход' : `Ход соперника: ${opponentName}`}
@@ -106,8 +109,13 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
       )}
 
       {/* После конца раунда обе руки показываются лицом в итогах, рубашки не нужны. */}
-      {!finished && <OpponentHand count={game.opponentHandCount} />}
-      <ReactionBubble who="opponent" bubble={reactions.bubbles.opponent} />
+      {/* spec-13 UI9: облачко соперника — поверх строки его руки, не над столом. */}
+      {!finished && (
+        <OpponentHand
+          count={game.opponentHandCount}
+          bubble={<ReactionBubble who="opponent" bubble={reactions.bubbles.opponent} />}
+        />
+      )}
       {turnTimer && !timerMine && (
         <div className="turn-timer-row turn-timer-row--opponent">
           <TurnTimer timer={turnTimer} />
@@ -126,7 +134,7 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
 
       {finished ? (
         <>
-          <ReactionBubble who="mine" bubble={reactions.bubbles.mine} />
+          {/* spec-13 UI9: на итогах оба облачка — у подписей своих рук. */}
           <RoundSummary
             game={game}
             result={game.result!}
@@ -135,6 +143,8 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
             error={table.error}
             canContinue={canContinue}
             onContinue={table.ready}
+            opponentBubble={<ReactionBubble who="opponent" bubble={reactions.bubbles.opponent} />}
+            mineBubble={<ReactionBubble who="mine" side bubble={reactions.bubbles.mine} />}
           />
           <div className="controls reactions-row">{reactionPanel}</div>
         </>

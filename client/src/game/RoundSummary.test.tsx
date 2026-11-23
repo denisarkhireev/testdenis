@@ -6,6 +6,7 @@ import { TIMEOUT_TEXT } from '../lobby/errors';
 import { createFakeSocket, deferred, hello } from '../test/fakeSocket';
 import { makeMatch, makeRoom, makeView } from '../test/fixtures';
 import { GAME_ERROR_TEXT } from './errors';
+import { RoundSummary } from './RoundSummary';
 
 const byId = (id: string) => screen.getByTestId(id);
 const queryById = (id: string) => screen.queryByTestId(id);
@@ -156,6 +157,14 @@ describe('MatchScore / RoundSummary', () => {
     expect(byId('match-finished')).toHaveTextContent('Матч выиграл Боб');
   });
 
+  it('UI1: match result line has exactly one « · » before the score', () => {
+    setup(finishedView(youWinDomino), makeMatch({ scores: [104, 40], winner: 0, roundNumber: 5 }));
+    expect(byId('match-finished').textContent).toBe('Вы выиграли матч! · Счёт 104 : 40');
+    cleanup();
+    setup(finishedView(youWinDomino), makeMatch({ scores: [4, 42], winner: 1 }));
+    expect(byId('match-finished').textContent).toBe('Матч выиграл Боб · Счёт 4 : 42');
+  });
+
   it('S9: an error ack and a timeout are shown in move-error', async () => {
     const { fake } = setup(finishedView(youWinDomino));
     fake.emitWithAck.mockResolvedValueOnce({ ok: false, error: 'ROUND_NOT_FINISHED' });
@@ -186,5 +195,30 @@ describe('MatchScore / RoundSummary', () => {
     expect(byId('continue-button')).toBeDisabled();
     fireEvent.click(byId('continue-button'));
     expect(readyCalls(fake)).toHaveLength(0);
+  });
+});
+
+describe('RoundSummary reaction bubbles (spec-13 UI9)', () => {
+  it('UI9: opponentBubble is inside the opponent hand, mineBubble inside mine', () => {
+    for (const you of [0, 1] as const) {
+      const game = finishedView(youWinDomino, { you });
+      const opponent = you === 0 ? 1 : 0;
+      render(
+        <RoundSummary
+          game={game}
+          result={youWinDomino}
+          match={makeMatch()}
+          players={makeRoom(game).players}
+          error={null}
+          canContinue
+          onContinue={() => {}}
+          opponentBubble={<span data-testid="opp-bubble" />}
+          mineBubble={<span data-testid="mine-bubble" />}
+        />,
+      );
+      expect(byId(`summary-hand-${opponent}`)).toContainElement(byId('opp-bubble'));
+      expect(byId(`summary-hand-${you}`)).toContainElement(byId('mine-bubble'));
+      cleanup();
+    }
   });
 });

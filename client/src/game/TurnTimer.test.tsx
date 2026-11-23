@@ -36,13 +36,16 @@ describe('TurnTimer (spec-11)', () => {
     expect(el).toHaveClass('turn-timer--urgent');
   });
 
-  it('TC4: paused → static value with ⏸', () => {
+  it('TC4, UI8: paused → static «пауза 00:15» without ⏸', () => {
     vi.useFakeTimers();
     render(<TurnTimer timer={{ seat: 1, remainingMs: 15_000, paused: true }} />);
     const el = byId('turn-timer');
-    expect(el).toHaveTextContent('⏸ 00:15');
+    expect(el.textContent).toBe('пауза 00:15');
+    expect(el.textContent).not.toContain('⏸');
+    expect(el).toHaveAttribute('aria-label', 'Таймер на паузе: 00:15');
+    expect(el).toHaveClass('turn-timer--paused');
     act(() => vi.advanceTimersByTime(5_000));
-    expect(el).toHaveTextContent('⏸ 00:15');
+    expect(el.textContent).toBe('пауза 00:15');
     expect(el).toHaveAttribute('data-paused', 'true');
     expect(el).toHaveAttribute('data-urgent', 'false');
     expect(el).toHaveAttribute('data-seat', '1');
@@ -96,14 +99,28 @@ describe('GameTable: turn timer placement (spec-11)', () => {
   });
 });
 
-describe('MatchScore (spec-11)', () => {
-  it('TC8: shows «· ход 60 с» at 60 and nothing at 0', () => {
+describe('MatchScore (spec-11, spec-13)', () => {
+  it('TC8, UI7: shows «ход 60 с» (no « · » in the text) at 60 and nothing at 0', () => {
     const players = makeRoom().players;
     const { rerender } = render(
       <MatchScore match={makeMatch()} players={players} turnSeconds={60} />,
     );
-    expect(byId('turn-seconds-label')).toHaveTextContent('· ход 60 с');
+    expect(byId('turn-seconds-label').textContent).toBe('ход 60 с');
     rerender(<MatchScore match={makeMatch()} players={players} turnSeconds={0} />);
     expect(screen.queryByTestId('turn-seconds-label')).toBeNull();
+  });
+
+  it('UI7: meta parts are separate .match-score-item, numbers stay in their testids', () => {
+    const players = makeRoom().players;
+    const match = makeMatch({ target: 101, roundNumber: 3 });
+    const { container, rerender } = render(
+      <MatchScore match={match} players={players} turnSeconds={30} />,
+    );
+    const items = () => [...container.querySelectorAll('.match-score-item')];
+    expect(items().map((el) => el.textContent)).toEqual(['до 101', 'Раунд 3', 'ход 30 с']);
+    expect(byId('match-target').textContent).toBe('101');
+    expect(byId('match-round').textContent).toBe('3');
+    rerender(<MatchScore match={match} players={players} turnSeconds={0} />);
+    expect(items()).toHaveLength(2);
   });
 });

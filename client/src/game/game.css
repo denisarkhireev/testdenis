@@ -5,14 +5,9 @@
   overflow-wrap: anywhere;
 }
 
-.game-screen *,
-.game-screen *::before,
-.game-screen *::after {
-  box-sizing: border-box;
-}
-
 .players {
   display: flex;
+  min-width: 0;
   flex-wrap: wrap;
   gap: 0.25rem 1rem;
   margin: 0 0 0.5rem;
@@ -52,10 +47,26 @@
   font-weight: 600;
 }
 
+/* spec-13 UI4: длинные имена без пробелов переносятся. */
+.players li,
+.match-score,
+.match-score-names,
+.round-finished,
+.match-finished,
+.summary-hand-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .turn-indicator--mine {
   border-color: #2e7d32;
   background: #e3f4e4;
   color: #1b5e20;
+}
+
+/* spec-13 UI6: без связи — нейтральный вид, как не свой ход. */
+.turn-indicator[data-offline='true'] {
+  color: #616161;
 }
 
 .round-finished {
@@ -81,6 +92,12 @@
 
 .match-score-meta {
   color: #b0bec5;
+}
+
+/* spec-13 UI7: « · » между именами и каждой частью метаданных — только CSS. */
+.match-score-item::before {
+  content: '·';
+  margin: 0 0.35em;
 }
 
 /* spec-7: экран итогов раунда, одна колонка */
@@ -109,6 +126,7 @@
 
 .summary-hand {
   --tile-short: calc(var(--pip-unit) * 7);
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -202,8 +220,10 @@
   margin: 15% 0;
 }
 
-/* Рука соперника */
+/* Рука соперника. spec-13 UI9: строка — якорь облачка реакции соперника. */
 .opponent-hand {
+  position: relative;
+  min-height: 3.25rem;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -227,6 +247,9 @@
 /* Стол */
 .board {
   --tile-short: calc(var(--pip-unit) * 8);
+  /* spec-13 UI5: не шире контейнера — кости переносятся, растёт высота. */
+  max-width: 100%;
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -243,7 +266,7 @@
 }
 
 .end-button {
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 0.6rem;
   border: 2px dashed #ffeb3b;
   border-radius: 6px;
@@ -266,7 +289,7 @@
 }
 
 .controls button {
-  min-height: 40px;
+  min-height: 44px;
   font: inherit;
 }
 
