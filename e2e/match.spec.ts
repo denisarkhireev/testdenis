@@ -1,11 +1,7 @@
 import { expect, type Page } from '@playwright/test';
-import { playRoundToEnd, readTable, startGame, test, TIMEOUT } from './helpers';
+import { noHorizontalScroll, playRoundToEnd, readTable, startGame, test, TIMEOUT } from './helpers';
 
 test.describe.configure({ timeout: 120_000 });
-
-async function noHorizontalScroll(page: Page): Promise<boolean> {
-  return page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
-}
 
 async function roundPoints(page: Page): Promise<number> {
   return Number(await page.getByTestId('round-points').textContent());

@@ -1,11 +1,15 @@
-import { expect, type Page } from '@playwright/test';
-import { currentMover, playStep, readTable, startGame, test, TIMEOUT } from './helpers';
+import { expect } from '@playwright/test';
+import {
+  currentMover,
+  noHorizontalScroll,
+  playStep,
+  readTable,
+  startGame,
+  test,
+  TIMEOUT,
+} from './helpers';
 
 test.describe.configure({ timeout: 60_000 });
-
-async function noHorizontalScroll(page: Page): Promise<boolean> {
-  return page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
-}
 
 test('E8: two players make several moves', async ({ browser }) => {
   const { a, b } = await startGame(browser);

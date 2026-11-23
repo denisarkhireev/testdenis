@@ -10,6 +10,114 @@ import {
 export const TIMEOUT = { timeout: 10_000 };
 const INVITE_RE = /\/\?room=[A-HJ-NP-Z2-9]{6}$/;
 
+/** spec-13 §4.4: ширины, на которых проверяется вёрстка. */
+export const WIDTHS = [360, 390, 768, 1280] as const;
+export type Width = (typeof WIDTHS)[number];
+
+const VIEWPORT_HEIGHT: Record<Width, number> = { 360: 740, 390: 844, 768: 1024, 1280: 800 };
+
+export function viewportFor(width: Width): { width: number; height: number } {
+  return { width, height: VIEWPORT_HEIGHT[width] };
+}
+
+/** Нет горизонтального скролла страницы. */
+export async function noHorizontalScroll(page: Page): Promise<boolean> {
+  return page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+}
+
+/** spec-13: NAME_MAX_LENGTH = 20 символов без пробелов. */
+export const LONG_A = 'АнастасияАлександров';
+export const LONG_B = 'Бобби-Длинноимённый1';
+
+/** spec-13 §4.4: ключевые testid экранов для `checkLayout` (layout.spec и screens.spec). */
+export const KEY_IDS = {
+  home: ['name-input', 'create-button', 'turn-seconds', 'sound-toggle'],
+  badLink: ['home-button', 'sound-toggle'],
+  waiting: ['invite-link', 'copy-button', 'sound-toggle'],
+  join: ['join-room-code', 'name-input', 'join-button', 'sound-toggle'],
+  table: [
+    'match-score',
+    'players',
+    'turn-indicator',
+    'opponent-hand',
+    'board',
+    'boneyard',
+    'draw-button',
+    'pass-button',
+    'reaction-toggle',
+    'reaction-panel',
+    'my-hand',
+    'hand-tile-*',
+    'end-left',
+    'end-right',
+  ],
+  summary: [
+    'match-score',
+    'round-summary',
+    'round-finished',
+    'match-finished',
+    'summary-hand-0',
+    'summary-hand-1',
+    'board',
+    'continue-button',
+    'board-tile-*',
+  ],
+};
+
+export interface LayoutViolation {
+  target: string;
+  rule: 'horizontal-scroll' | 'min-height-44' | 'inside-viewport';
+  value: number;
+}
+
+/**
+ * spec-13 §4.4 `checkLayout`: (1) нет горизонтального скролла (UI4); (2) каждый видимый
+ * button / текстовый input / `.turn-seconds-option` в `main` — не ниже 44 px (UI3);
+ * (3) каждый видимый элемент из `keyTestIds` целиком по горизонтали внутри вьюпорта (UI4).
+ * `prefix*` в `keyTestIds` — все элементы с testid, начинающимся на `prefix`.
+ * Возвращает список нарушений; ожидается `[]`.
+ */
+export async function checkLayout(page: Page, keyTestIds: string[]): Promise<LayoutViolation[]> {
+  return page.evaluate((ids) => {
+    const violations: LayoutViolation[] = [];
+    const root = document.documentElement;
+    const width = root.clientWidth;
+    if (root.scrollWidth > width) {
+      violations.push({ target: 'document', rule: 'horizontal-scroll', value: root.scrollWidth });
+    }
+    const visible = (el: HTMLElement) =>
+      el.offsetParent !== null || getComputedStyle(el).position === 'fixed';
+    const describe = (el: HTMLElement) =>
+      el.dataset.testid ?? `${el.tagName.toLowerCase()}.${el.className || '?'}`;
+
+    const interactive = document.querySelectorAll<HTMLElement>(
+      'main button, main input[type="text"], main input:not([type]), main .turn-seconds-option',
+    );
+    for (const el of interactive) {
+      if (!visible(el)) continue;
+      const height = el.getBoundingClientRect().height;
+      if (height < 44)
+        violations.push({ target: describe(el), rule: 'min-height-44', value: height });
+    }
+
+    for (const id of ids) {
+      const selector = id.endsWith('*')
+        ? `[data-testid^="${id.slice(0, -1)}"]`
+        : `[data-testid="${id}"]`;
+      for (const el of document.querySelectorAll<HTMLElement>(selector)) {
+        if (!visible(el)) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.left < -0.5) {
+          violations.push({ target: describe(el), rule: 'inside-viewport', value: rect.left });
+        } else if (rect.right > width + 0.5) {
+          violations.push({ target: describe(el), rule: 'inside-viewport', value: rect.right });
+        }
+      }
+    }
+    return violations;
+  }, keyTestIds);
+}
+
 export interface CreateGameOptions {
   /** spec-11: выбрать `turn-seconds-<N>` перед созданием; нет — значение по умолчанию (60 с). */
   turnSeconds?: number;
@@ -52,6 +160,8 @@ export interface PlayerOptions {
    * мгновенно; 'no-preference' — с анимациями (E17).
    */
   reducedMotion?: 'reduce' | 'no-preference';
+  /** spec-13 §4.4: выключить звук до загрузки страницы (стабильные скриншоты). */
+  soundOff?: boolean;
 }
 
 /** Контексты, открытые `newPlayer` в текущем тесте; закрываются фикстурой `test` ниже. */
@@ -63,7 +173,7 @@ const openContexts = new Set<BrowserContext>();
  */
 export async function newPlayer(
   browser: Browser,
-  { viewport, storageState, reducedMotion = 'reduce' }: PlayerOptions = {},
+  { viewport, storageState, reducedMotion = 'reduce', soundOff = false }: PlayerOptions = {},
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
     ...devices['Desktop Chrome'],
@@ -75,6 +185,9 @@ export async function newPlayer(
   });
   openContexts.add(context);
   context.once('close', () => openContexts.delete(context));
+  if (soundOff) {
+    await context.addInitScript(() => localStorage.setItem('domino:sound', 'off'));
+  }
   return { context, page: await context.newPage() };
 }
 
@@ -105,13 +218,27 @@ export async function startGame(
   {
     viewport,
     reducedMotion,
+    soundOff,
     turnSeconds,
-  }: Pick<PlayerOptions, 'viewport' | 'reducedMotion'> & CreateGameOptions = {},
+    names = ['Аня', 'Боб'],
+  }: Pick<PlayerOptions, 'viewport' | 'reducedMotion' | 'soundOff'> &
+    CreateGameOptions & {
+      /** spec-13: имена A и B (по умолчанию «Аня» / «Боб»). */
+      names?: [string, string];
+    } = {},
 ): Promise<StartedGame> {
-  const { context: ctxA, page: a } = await newPlayer(browser, { viewport, reducedMotion });
-  const { context: ctxB, page: b } = await newPlayer(browser, { viewport, reducedMotion });
-  const link = await createGame(a, 'Аня', { turnSeconds });
-  await joinByLink(b, link, 'Боб');
+  const { context: ctxA, page: a } = await newPlayer(browser, {
+    viewport,
+    reducedMotion,
+    soundOff,
+  });
+  const { context: ctxB, page: b } = await newPlayer(browser, {
+    viewport,
+    reducedMotion,
+    soundOff,
+  });
+  const link = await createGame(a, names[0], { turnSeconds });
+  await joinByLink(b, link, names[1]);
   for (const page of [a, b]) {
     await expect(page.getByTestId('game-screen')).toBeVisible(TIMEOUT);
     await expect(page.getByTestId('turn-indicator')).toBeVisible(TIMEOUT);

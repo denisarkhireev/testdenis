@@ -32,7 +32,7 @@ test.describe('turn timer (spec-11)', () => {
     await expect(timer).toBeVisible(TIMEOUT);
     await expect(timer).toHaveText(/^00:0[0-3]$/);
     await expect(timer).toHaveAttribute('data-urgent', 'true');
-    await expect(mover.getByTestId('turn-seconds-label')).toHaveText('· ход 3 с');
+    await expect(mover.getByTestId('turn-seconds-label')).toHaveText('ход 3 с');
 
     // Первый авто-ход: обязательная первая кость легла на стол у обоих, ход перешёл.
     for (const page of [a, b]) await expect(page.getByTestId(/^board-tile-/)).toHaveCount(1, AUTO);
@@ -91,7 +91,7 @@ test.describe('turn timer (spec-11)', () => {
     await expect(staying.getByTestId('opponent-offline')).toBeVisible(TIMEOUT);
     const timer = staying.getByTestId('turn-timer');
     await expect(timer).toHaveAttribute('data-paused', 'true', TIMEOUT);
-    await expect(timer).toHaveText(/^⏸ 00:0[0-3]$/);
+    await expect(timer).toHaveText(/^пауза 00:0[0-3]$/);
     const paused = snapshot(await readTable(staying));
     await staying.waitForTimeout(6_000);
     expect(snapshot(await readTable(staying))).toBe(paused);
