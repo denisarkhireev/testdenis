@@ -7,6 +7,7 @@ import {
   parseReactionId,
   parseRoomId,
   parseTurnSeconds,
+  parseVariant,
 } from './validate';
 
 describe('validate', () => {
@@ -95,6 +96,15 @@ describe('validate', () => {
     expect(parseOpponent('bot')).toEqual({ ok: true, value: 'bot' });
     for (const bad of ['Bot', 'robot', '', 1, null, {}, ['bot']]) {
       expect(parseOpponent(bad)).toEqual({ ok: false });
+    }
+  });
+
+  it('K8-1: parseVariant — undefined → classic; classic/kozel ok; anything else fails (spec-16)', () => {
+    expect(parseVariant(undefined)).toEqual({ ok: true, value: 'classic' });
+    expect(parseVariant('classic')).toEqual({ ok: true, value: 'classic' });
+    expect(parseVariant('kozel')).toEqual({ ok: true, value: 'kozel' });
+    for (const bad of ['KOZEL', 'goat', '', null, 1, {}, ['kozel'], 'toString']) {
+      expect(parseVariant(bad)).toEqual({ ok: false });
     }
   });
 });

@@ -1,4 +1,13 @@
-import { OPPONENTS, type Move, type Opponent, type Pip, type Tile } from '@domino/shared';
+import {
+  DEFAULT_VARIANT,
+  OPPONENTS,
+  VARIANT_OPTIONS,
+  type Move,
+  type Opponent,
+  type Pip,
+  type Tile,
+  type VariantId,
+} from '@domino/shared';
 
 /** Результат runtime-валидации payload. */
 export type Parsed<T> = { ok: true; value: T } | { ok: false };
@@ -91,4 +100,12 @@ export function parseReactionId(value: unknown): Parsed<string> {
 export function parseOpponent(value: unknown): Parsed<Opponent> {
   if (value === undefined) return ok('human');
   return OPPONENTS.includes(value as Opponent) ? ok(value as Opponent) : fail;
+}
+
+/** spec-16 K8: нет поля — 'classic'; иначе один из VARIANT_OPTIONS, прочее — fail. */
+export function parseVariant(value: unknown): Parsed<VariantId> {
+  if (value === undefined) return ok(DEFAULT_VARIANT);
+  return typeof value === 'string' && VARIANT_OPTIONS.includes(value as VariantId)
+    ? ok(value as VariantId)
+    : fail;
 }

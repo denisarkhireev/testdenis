@@ -870,7 +870,7 @@ describe('RoomManager: room settings (spec-14)', () => {
     const id = created.value.room.id;
     expect(rooms.info(id)).toEqual({
       ok: true,
-      value: { matchTarget: 151, handSize: 6, turnSeconds: 30 },
+      value: { matchTarget: 151, handSize: 6, turnSeconds: 30, variant: 'classic' },
     });
     rooms.join('s1', id, 'B');
     expect(rooms.info(id)).toMatchObject({ ok: true, value: { matchTarget: 151 } });
@@ -1204,5 +1204,109 @@ describe('RoomManager: bot (spec-15)', () => {
     expect(onBotMove).not.toHaveBeenCalled();
     expect(room.round!.currentPlayer).toBe(1);
     expect(timerView(room)).toMatchObject({ seat: 1, paused: false });
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe('RoomManager: rules variant «Козёл» (spec-16)', () => {
+  const PLAY_LAST: Parameters<RoomManager['move']>[2] = {
+    type: 'play',
+    tile: [4, 4],
+    end: 'left',
+  };
+
+  function kozelRoom(settings: Parameters<RoomManager['create']>[2] = {}): Room {
+    const created = rooms.create('s0', 'A', { variant: 'kozel', ...settings });
+    if (!created.ok) throw new Error('create failed');
+    const joined = rooms.join('s1', created.value.room.id, 'B');
+    if (!joined.ok) throw new Error('join failed');
+    return joined.value.room;
+  }
+
+  it("K7-1: create keeps the variant, info returns it; without settings — 'classic'", () => {
+    const kozel = rooms.create('s0', 'A', { variant: 'kozel' });
+    const classic = rooms.create('s1', 'B');
+    if (!kozel.ok || !classic.ok) throw new Error('create failed');
+    expect(kozel.value.room.variant).toBe('kozel');
+    expect(rooms.info(kozel.value.room.id)).toMatchObject({
+      ok: true,
+      value: { variant: 'kozel' },
+    });
+    expect(classic.value.room.variant).toBe('classic');
+    expect(toRoomState(kozel.value.room, 0).variant).toBe('kozel');
+    expect(toRoomState(classic.value.room, 0).variant).toBe('classic');
+  });
+
+  it('K7-2: points go to the round loser; next round keeps kozel; the goat loses the match; rematch is kozel 0:0', () => {
+    rooms = makeRooms({ startRound: lastTile });
+    const room = kozelRoom({ matchTarget: 30, turnSeconds: 0 });
+
+    expect(rooms.move(room.id, 0, PLAY_LAST).ok).toBe(true);
+    expect(room.round!.result).toEqual({
+      reason: 'domino',
+      winner: 0,
+      scorer: 1,
+      points: 16,
+      handPoints: [0, 16],
+    });
+    expect(room.match).toMatchObject({ scores: [0, 16], winner: null });
+
+    rooms.ready(room.id, 0);
+    rooms.ready(room.id, 1);
+    expect(room.variant).toBe('kozel');
+    expect(room.match).toMatchObject({ roundNumber: 2, scores: [0, 16] });
+
+    expect(rooms.move(room.id, 0, PLAY_LAST).ok).toBe(true);
+    expect(room.match).toMatchObject({ scores: [0, 32], winner: 0 });
+    expect(roomPhase(room)).toBe('finished');
+
+    rooms.ready(room.id, 0);
+    expect(rooms.ready(room.id, 1)).toMatchObject({ ok: true, value: { started: 'match' } });
+    expect(room.variant).toBe('kozel');
+    expect(room.match).toMatchObject({ scores: [0, 0], winner: null, target: 30, rounds: [] });
+  });
+
+  it('K7-2: classic room with the same round scores the winner (regression)', () => {
+    rooms = makeRooms({ startRound: lastTile });
+    const { room } = setup(0);
+    expect(room.variant).toBe('classic');
+    expect(rooms.move(room.id, 0, PLAY_LAST).ok).toBe(true);
+    expect(room.round!.result).not.toHaveProperty('scorer');
+    expect(room.match!.scores).toEqual([16, 0]);
+  });
+
+  it('K7-3: an auto-move by the turn timer ends the round with kozel scoring', () => {
+    rooms = makeRooms({ startRound: lastTile });
+    const room = kozelRoom({ turnSeconds: 30 });
+    vi.advanceTimersByTime(30_000);
+    expect(onAutoMove).toHaveBeenCalledTimes(1);
+    expect(room.round!.result).toMatchObject({ winner: 0, scorer: 1, points: 16 });
+    expect(room.match!.scores).toEqual([0, 16]);
+  });
+
+  it('K9-1: the bot finishes a kozel round → the human is scored, the bot is ready (B7)', () => {
+    rooms.closeAll();
+    rooms = makeRooms({
+      botDelayMs: () => 1000,
+      startRound: () => ({
+        ...lastTile(),
+        hands: [lastTile().hands[1], [[4, 4]]],
+        currentPlayer: 1,
+      }),
+    });
+    const created = rooms.createWithBot('s0', 'A', { variant: 'kozel', turnSeconds: 0 });
+    if (!created.ok) throw new Error('createWithBot failed');
+    const { room } = created.value;
+    vi.advanceTimersByTime(1000);
+    expect(room.round!.result).toEqual({
+      reason: 'domino',
+      winner: 1,
+      scorer: 0,
+      points: 16,
+      handPoints: [16, 0],
+    });
+    expect(room.match!.scores).toEqual([16, 0]);
+    expect(room.ready).toEqual([false, true]);
   });
 });

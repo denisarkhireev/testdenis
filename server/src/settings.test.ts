@@ -100,7 +100,7 @@ describe('room settings over sockets (spec-14), default MATCH_TARGET', () => {
     expect(info).toEqual({
       ok: true,
       roomId: created.roomId,
-      settings: { matchTarget: 51, handSize: 5, turnSeconds: 30 },
+      settings: { matchTarget: 51, handSize: 5, turnSeconds: 30, variant: 'classic' },
     });
     await noState;
     expect(await emitAck(b, 'room:info', { roomId: 'ZZZZZZ' })).toEqual({

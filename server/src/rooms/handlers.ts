@@ -19,6 +19,7 @@ import {
   parseMove,
   parseName,
   parseOpponent,
+  parseVariant,
   parseOption,
   parseReactionId,
   parseRoomId,
@@ -66,6 +67,7 @@ export function toRoomState(
     turnSeconds: room.turnSeconds,
     matchTarget: room.matchTarget,
     handSize: room.handSize,
+    variant: room.variant,
     turnTimer: toTurnTimerView(room, now),
   };
 }
@@ -171,7 +173,8 @@ export function registerRoomHandlers(io: GameServer, rooms: RoomManager): void {
         );
         const handSize = parseOption(payload.handSize, HAND_SIZE_OPTIONS, DEFAULT_HAND_SIZE);
         const opponent = parseOpponent(payload.opponent);
-        if (!turnSeconds.ok || !matchTarget.ok || !handSize.ok || !opponent.ok) {
+        const variant = parseVariant(payload.variant);
+        if (!turnSeconds.ok || !matchTarget.ok || !handSize.ok || !opponent.ok || !variant.ok) {
           return ack({ ok: false, error: 'INVALID_PAYLOAD' });
         }
 
@@ -180,6 +183,7 @@ export function registerRoomHandlers(io: GameServer, rooms: RoomManager): void {
           turnSeconds: turnSeconds.value,
           matchTarget: matchTarget.value,
           handSize: handSize.value,
+          variant: variant.value,
         };
         const result = vsBot
           ? rooms.createWithBot(socket.id, name.value, settings)
@@ -189,7 +193,7 @@ export function registerRoomHandlers(io: GameServer, rooms: RoomManager): void {
         socket.data.roomId = room.id;
         socket.data.seat = seat;
         console.info(
-          `room ${room.id} created${vsBot ? ' vs bot' : ''} (target ${room.matchTarget}, hand ${room.handSize}, turn ${room.turnSeconds}s)`,
+          `room ${room.id} created${vsBot ? ' vs bot' : ''} (${room.variant}, target ${room.matchTarget}, hand ${room.handSize}, turn ${room.turnSeconds}s)`,
         );
         ack({ ok: true, roomId: room.id, seat, playerToken: token });
         broadcastState(io, room);

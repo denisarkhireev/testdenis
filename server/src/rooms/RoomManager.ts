@@ -5,6 +5,8 @@ import {
   createMatch,
   DEFAULT_HAND_SIZE,
   DEFAULT_TURN_SECONDS,
+  DEFAULT_VARIANT,
+  getVariant,
   MATCH_TARGET,
   MATCH_TARGET_OPTIONS,
   TURN_SECONDS_OPTIONS,
@@ -14,7 +16,6 @@ import {
   pickAutoMove,
   pickBotMove,
   REACTION_COOLDOWN_MS,
-  recordRound,
   startRound,
   type MatchState,
   type GameErrorCode,
@@ -28,6 +29,7 @@ import {
   type RoomReactionPayload,
   type RoomSettings,
   type RoundState,
+  type VariantId,
   toPlayerView,
 } from '@domino/shared';
 import { generateRoomId, generateToken } from './ids';
@@ -92,6 +94,8 @@ export interface Room {
   matchTarget: number;
   /** spec-14 S1, S4: размер руки комнаты. Не меняется до закрытия комнаты. */
   handSize: number;
+  /** spec-16 K7: вариант правил комнаты. Не меняется до закрытия комнаты (раунды, реванш). */
+  variant: VariantId;
   /** spec-11: null — таймер не идёт (T3). */
   turnTimer: TurnTimerState | null;
   /** spec-15 B3: запланированное действие бота; null — бот не ждёт хода. */
@@ -177,6 +181,7 @@ export class RoomManager {
       matchTarget = this.defaultMatchTarget,
       handSize = DEFAULT_HAND_SIZE,
       turnSeconds = DEFAULT_TURN_SECONDS,
+      variant = DEFAULT_VARIANT,
     } = settings;
     const id = generateRoomId((candidate) => this.rooms.has(candidate));
     const token = generateToken();
@@ -200,6 +205,7 @@ export class RoomManager {
       turnSeconds,
       matchTarget,
       handSize,
+      variant,
       turnTimer: null,
       botTimer: null,
     };
@@ -215,6 +221,7 @@ export class RoomManager {
       matchTarget: room.matchTarget,
       handSize: room.handSize,
       turnSeconds: room.turnSeconds,
+      variant: room.variant,
     });
   }
 
@@ -385,15 +392,16 @@ export class RoomManager {
     return (this.opts.now ?? Date.now)();
   }
 
-  /** Ход по правилам + очки раунда (общая часть ручного хода и авто-хода, T6). */
+  /** Ход по правилам варианта комнаты + очки раунда (ручной ход, авто-ход T6, бот B3). */
   private apply(room: Room, seat: PlayerIndex, move: Move): Result<null, MoveError> {
     const previous = room.round!;
-    const result = applyMove(previous, seat, move);
+    const variant = getVariant(room.variant); // spec-16 K7
+    const result = applyMove(previous, seat, move, variant);
     if (!result.ok) return err(result.error);
     room.round = result.state;
     // M2, M3: очки раунда — ровно один раз, в момент перехода playing → finished.
     if (previous.status === 'playing' && result.state.status === 'finished' && room.match) {
-      room.match = recordRound(room.match, result.state.result!);
+      room.match = variant.recordRound(room.match, result.state.result!);
       // spec-15 B7: бот сразу готов к следующему раунду/реваншу.
       if (room.seats[BOT_SEAT]?.bot) room.ready[BOT_SEAT] = true;
     }
