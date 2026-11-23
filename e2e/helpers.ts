@@ -136,16 +136,19 @@ export interface CreateGameOptions {
   handSize?: number;
   /** spec-16: выбрать `variant-choice-<id>`; нет — сохранённое/«Классика». */
   variant?: 'classic' | 'kozel';
+  /** spec-17: выбрать `mode-choice-<mode>`; нет — сохранённый/«1 на 1». */
+  mode?: '1x1' | '2x2';
 }
 
 /** Вкладка A: «Создать игру» → экран ожидания; возвращает ссылку-приглашение. */
 export async function createGame(
   page: Page,
   name: string,
-  { turnSeconds, matchTarget, handSize, variant }: CreateGameOptions = {},
+  { turnSeconds, matchTarget, handSize, variant, mode }: CreateGameOptions = {},
 ): Promise<string> {
   await page.goto('/');
   await expect(page.getByTestId('connection-status')).toHaveText('connected', TIMEOUT);
+  if (mode !== undefined) await page.getByTestId(`mode-choice-${mode}`).check();
   if (matchTarget !== undefined) {
     await page.getByTestId(`match-target-choice-${matchTarget}`).check();
   }
@@ -341,7 +344,9 @@ export async function makeMove(page: Page): Promise<MoveKind> {
     if (await endRight.isVisible()) await endRight.click();
     return 'play';
   }
-  if (await page.getByTestId('draw-button').isEnabled()) {
+  // spec-17: в 2×2 кнопки «Взять из базара» нет.
+  const draw = page.getByTestId('draw-button');
+  if ((await draw.count()) > 0 && (await draw.isEnabled())) {
     await page.getByTestId('draw-button').click();
     return 'draw';
   }
@@ -480,6 +485,165 @@ export async function playRoundVsBot(page: Page, maxSteps = 200): Promise<BotRou
       .toBe(true);
     const after = await readTable(page);
     if (!after.summary) expectTotal(after);
+  }
+  throw new Error(`round did not finish in ${maxSteps} steps`);
+}
+
+// ─── spec-17: игра вчетвером (2 на 2) ───────────────────────────────────────────────
+
+export type TeamSide = 'top' | 'left' | 'right';
+export const TEAM_SIDES: readonly TeamSide[] = ['top', 'left', 'right'];
+
+export interface StartedTeamGame {
+  /** pages[i] — игрок места i: A (создатель), B, C, D в порядке входа по ссылке. */
+  pages: [Page, Page, Page, Page];
+  contexts: BrowserContext[];
+  link: string;
+}
+
+/**
+ * spec-17 §4.4: 4 контекста; A создаёт «2 на 2», B/C/D входят по ссылке (места 1, 2, 3);
+ * ждёт игровой стол у всех.
+ */
+export async function startTeamGame(
+  browser: Browser,
+  {
+    names = ['Аня', 'Боб', 'Вера', 'Гена'],
+    turnSeconds,
+    variant,
+    matchTarget,
+    viewport,
+  }: Pick<PlayerOptions, 'viewport'> &
+    Pick<CreateGameOptions, 'turnSeconds' | 'variant' | 'matchTarget'> & {
+      names?: [string, string, string, string];
+    } = {},
+): Promise<StartedTeamGame> {
+  const players = await Promise.all(names.map(() => newPlayer(browser, { viewport })));
+  const pages = players.map((p) => p.page) as [Page, Page, Page, Page];
+  const link = await createGame(pages[0], names[0], {
+    mode: '2x2',
+    turnSeconds,
+    variant,
+    matchTarget,
+  });
+  await expect(pages[0].getByTestId('waiting-count')).toContainText('1/4', TIMEOUT);
+  for (let i = 1; i < 4; i++) {
+    await joinByLink(pages[i]!, link, names[i]!);
+    if (i < 3) await expect(pages[i]!.getByTestId('waiting-screen')).toBeVisible(TIMEOUT);
+  }
+  for (const page of pages) {
+    await expect(page.getByTestId('game-screen')).toBeVisible(TIMEOUT);
+    await expect(page.getByTestId('turn-indicator')).toBeVisible(TIMEOUT);
+  }
+  return { pages, contexts: players.map((p) => p.context), link };
+}
+
+export interface TeamTable {
+  /** Своё место (`.team-me[data-seat]`); -1 — стол не нарисован. */
+  you: number;
+  hand: number;
+  board: number;
+  myTurn: boolean;
+  seats: Record<TeamSide, { seat: number; count: number; active: boolean }>;
+  /** Табло: команда 0, команда 1. */
+  scores: [number, number];
+  summary: boolean;
+}
+
+/** spec-17 §4.4: то, что нарисовано на столе 2×2 вкладки. */
+export async function readTeamTable(page: Page): Promise<TeamTable> {
+  return page.evaluate(() => {
+    const count = (selector: string) => document.querySelectorAll(selector).length;
+    const seat = (side: string) => {
+      const el = document.querySelector(`[data-testid="seat-${side}"]`);
+      return {
+        seat: Number(el?.getAttribute('data-seat') ?? -1),
+        count: Number(el?.querySelector('[data-testid="seat-hand-count"]')?.textContent ?? -1),
+        active: el?.getAttribute('data-active') === 'true',
+      };
+    };
+    const indicator = document.querySelector('[data-testid="turn-indicator"]');
+    return {
+      you: Number(document.querySelector('.team-me')?.getAttribute('data-seat') ?? -1),
+      hand: count('[data-testid^="hand-tile-"]'),
+      board: count('[data-testid^="board-tile-"]'),
+      myTurn: indicator?.getAttribute('data-my-turn') === 'true',
+      seats: { top: seat('top'), left: seat('left'), right: seat('right') },
+      scores: [0, 1].map((team) =>
+        Number(document.querySelector(`[data-testid="match-score-${team}"]`)?.textContent),
+      ) as [number, number],
+      summary: count('[data-testid="round-summary"]') > 0,
+    };
+  });
+}
+
+/** spec-17 §4.4: страница с `data-my-turn="true"` — ровно одна из четырёх. */
+export async function currentMoverOf(pages: readonly Page[]): Promise<Page> {
+  await expect
+    .poll(async () => {
+      const tables = await Promise.all(pages.map(readTeamTable));
+      return tables.filter((t) => t.myTurn).length;
+    }, TIMEOUT)
+    .toBe(1);
+  const tables = await Promise.all(pages.map(readTeamTable));
+  return pages[tables.findIndex((t) => t.myTurn)]!;
+}
+
+/** spec-17 §7.5: инварианты стола 2×2 по всем четырём страницам (pages[i] — место i). */
+export function expectTeamInvariants(tables: readonly TeamTable[]): void {
+  const hands = tables.map((t) => t.hand);
+  for (const [i, t] of tables.entries()) {
+    expect(t.you).toBe(i);
+    const others = TEAM_SIDES.reduce((sum, side) => sum + t.seats[side].count, 0);
+    expect(t.board + t.hand + others).toBe(28);
+    expect(t.board).toBe(tables[0]!.board);
+    for (const side of TEAM_SIDES) {
+      const { seat, count } = t.seats[side];
+      expect(count, `seat ${seat} on page ${i}`).toBe(hands[seat]);
+    }
+  }
+  expect(tables.filter((t) => t.myTurn)).toHaveLength(1);
+}
+
+/**
+ * spec-17 §4.4: ход ходящего (`makeMove`: play или pass) + инварианты §7.5 на всех 4 страницах.
+ * Если ход закончил раунд — ждёт `round-summary` у всех, инварианты стола не проверяются.
+ */
+export async function playTeamStep(pages: readonly Page[]): Promise<MoveKind> {
+  const mover = await currentMoverOf(pages);
+  const before = await readTeamTable(mover);
+  const kind = await makeMove(mover);
+  const next = (before.you + 1) % 4;
+
+  for (const page of pages) {
+    await expect
+      .poll(async () => {
+        const t = await readTeamTable(page);
+        if (t.summary) return true;
+        const moved = kind === 'play' ? t.board === before.board + 1 : true;
+        const turnPassed = t.you === next ? t.myTurn : !t.myTurn;
+        return moved && turnPassed;
+      }, TIMEOUT)
+      .toBe(true);
+  }
+
+  const tables = await Promise.all(pages.map(readTeamTable));
+  if (tables.some((t) => t.summary)) {
+    for (const page of pages) await expect(page.getByTestId('round-summary')).toBeVisible(TIMEOUT);
+    return kind;
+  }
+  expectTeamInvariants(tables);
+  // после хода очередь — у следующего места по кругу
+  expect(tables[next]!.myTurn).toBe(true);
+  return kind;
+}
+
+/** spec-17 §4.4: `playTeamStep`, пока у всех четырёх не появится `round-summary`. */
+export async function playTeamRoundToEnd(pages: readonly Page[], maxSteps = 200): Promise<number> {
+  for (let steps = 0; steps < maxSteps; steps++) {
+    const tables = await Promise.all(pages.map(readTeamTable));
+    if (tables.every((t) => t.summary)) return steps;
+    await playTeamStep(pages);
   }
   throw new Error(`round did not finish in ${maxSteps} steps`);
 }
