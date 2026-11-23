@@ -3,6 +3,9 @@ import type { MatchView, PlayerView, RoomStatePayload } from '@domino/shared';
 import { useReducedMotion } from '../fx/useReducedMotion';
 import { useTableEvents } from '../fx/useTableEvents';
 import { useTileFlights } from '../fx/useTileFlights';
+import { ReactionBubble } from '../reactions/ReactionBubble';
+import { ReactionPanel } from '../reactions/ReactionPanel';
+import { useReactions } from '../reactions/useReactions';
 import type { ClientSocket } from '../socket';
 import { useSound } from '../sound/useSound';
 import type { ConnectionStatus } from '../useConnectionStatus';
@@ -31,6 +34,11 @@ export interface GameTableProps {
 /** 3.1: игровой стол в одну колонку; spec-7: табло матча и экран итогов раунда. */
 export function GameTable({ room, game, match, socket, status }: GameTableProps) {
   const table = useGameTable(socket, game, status);
+  // spec-12: реакции — отдельный pending, ход и реакция могут лететь одновременно.
+  const reactions = useReactions(socket, game.you, status);
+  const reactionPanel = (
+    <ReactionPanel canSend={reactions.canSend} error={reactions.error} onSend={reactions.send} />
+  );
   const { cancel, selected } = table;
   const opponentName = room.players.find((player) => player.seat !== game.you)?.name ?? '';
   const myTurn = game.currentPlayer === game.you;
@@ -99,6 +107,7 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
 
       {/* После конца раунда обе руки показываются лицом в итогах, рубашки не нужны. */}
       {!finished && <OpponentHand count={game.opponentHandCount} />}
+      <ReactionBubble who="opponent" bubble={reactions.bubbles.opponent} />
       {turnTimer && !timerMine && (
         <div className="turn-timer-row turn-timer-row--opponent">
           <TurnTimer timer={turnTimer} />
@@ -116,15 +125,19 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
       </p>
 
       {finished ? (
-        <RoundSummary
-          game={game}
-          result={game.result!}
-          match={match}
-          players={room.players}
-          error={table.error}
-          canContinue={canContinue}
-          onContinue={table.ready}
-        />
+        <>
+          <ReactionBubble who="mine" bubble={reactions.bubbles.mine} />
+          <RoundSummary
+            game={game}
+            result={game.result!}
+            match={match}
+            players={room.players}
+            error={table.error}
+            canContinue={canContinue}
+            onContinue={table.ready}
+          />
+          <div className="controls reactions-row">{reactionPanel}</div>
+        </>
       ) : (
         <>
           <div className="controls" data-testid="controls">
@@ -144,6 +157,7 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
             >
               Пропустить
             </button>
+            {reactionPanel}
             <p className="move-error" data-testid="move-error" role="alert">
               {table.error ?? ''}
             </p>
@@ -155,6 +169,7 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
             </div>
           )}
 
+          <ReactionBubble who="mine" bubble={reactions.bubbles.mine} />
           <HandView
             hand={game.hand}
             legalMoves={game.legalMoves}
