@@ -304,8 +304,8 @@ describe('GameTable', () => {
     const { fake } = setup();
     const offline = makeRoom(makeView(), {
       players: [
-        { seat: 0, name: 'Аня', connected: true, reconnectRemainingMs: null },
-        { seat: 1, name: 'Боб', connected: false, reconnectRemainingMs: 120_000 },
+        { seat: 0, name: 'Аня', connected: true, reconnectRemainingMs: null, bot: false },
+        { seat: 1, name: 'Боб', connected: false, reconnectRemainingMs: 120_000, bot: false },
       ],
     });
     fake.serverEmit('room:state', offline);

@@ -36,7 +36,9 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
   const table = useGameTable(socket, game, status);
   // spec-12: реакции — отдельный pending, ход и реакция могут лететь одновременно.
   const reactions = useReactions(socket, game.you, status);
-  const reactionPanel = (
+  // spec-15 B9: в комнате с ботом реакций нет — бот их не читает и не шлёт.
+  const vsBot = room.players.some((player) => player.bot);
+  const reactionPanel = vsBot ? null : (
     <ReactionPanel canSend={reactions.canSend} error={reactions.error} onSend={reactions.send} />
   );
   const { cancel, selected } = table;
@@ -153,7 +155,7 @@ export function GameTable({ room, game, match, socket, status }: GameTableProps)
             opponentBubble={<ReactionBubble who="opponent" bubble={reactions.bubbles.opponent} />}
             mineBubble={<ReactionBubble who="mine" side bubble={reactions.bubbles.mine} />}
           />
-          <div className="controls reactions-row">{reactionPanel}</div>
+          {reactionPanel && <div className="controls reactions-row">{reactionPanel}</div>}
         </>
       ) : (
         <>

@@ -15,7 +15,7 @@ function roomState(patch: Partial<RoomStatePayload> = {}): RoomStatePayload {
     roomId: 'ABC234',
     you: 0,
     phase: 'waiting',
-    players: [{ seat: 0, name: 'Аня', connected: true, reconnectRemainingMs: null }],
+    players: [{ seat: 0, name: 'Аня', connected: true, reconnectRemainingMs: null, bot: false }],
     game: null,
     match: null,
     turnSeconds: 60,
@@ -28,12 +28,13 @@ function roomState(patch: Partial<RoomStatePayload> = {}): RoomStatePayload {
 
 function players(opponentConnected = true, remainingMs: number | null = null): RoomPlayer[] {
   return [
-    { seat: 0, name: 'Аня', connected: true, reconnectRemainingMs: null },
+    { seat: 0, name: 'Аня', connected: true, reconnectRemainingMs: null, bot: false },
     {
       seat: 1,
       name: 'Боб',
       connected: opponentConnected,
       reconnectRemainingMs: opponentConnected ? null : remainingMs,
+      bot: false,
     },
   ];
 }

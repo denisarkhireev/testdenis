@@ -6,6 +6,7 @@ import {
   MATCH_TARGET,
   MATCH_TARGET_OPTIONS,
   TURN_SECONDS_OPTIONS,
+  type Opponent,
   type RoomSettings,
 } from '@domino/shared';
 import {
@@ -29,7 +30,8 @@ export interface HomeScreenProps {
   defaultMatchTarget?: number | undefined;
   /** spec-14: варианты из `server:hello.handSizeOptions`; пока его нет — HAND_SIZE_OPTIONS. */
   handSizeOptions?: readonly number[] | undefined;
-  onCreate(name: string, settings: RoomSettings): void;
+  /** spec-15: `opponent` — 'bot' для «Играть с ботом». */
+  onCreate(name: string, settings: RoomSettings, opponent: Opponent): void;
 }
 
 /** Подпись времени на ход: «Выкл», «30 с»; значения не из стандартного списка — тестовые (spec-11 §4.4). */
@@ -113,11 +115,11 @@ export function HomeScreen({
     DEFAULT_TURN_SECONDS,
   );
 
-  const handleCreate = (name: string) => {
+  const handleCreate = (name: string, opponent: Opponent) => {
     saveMatchTarget(matchTarget);
     saveHandSize(handSize);
     saveTurnSeconds(turnSeconds);
-    onCreate(name, { matchTarget, handSize, turnSeconds });
+    onCreate(name, { matchTarget, handSize, turnSeconds }, opponent);
   };
 
   return (
@@ -152,7 +154,12 @@ export function HomeScreen({
         submitTestId="create-button"
         canSubmit={canSubmit}
         error={error}
-        onSubmit={handleCreate}
+        onSubmit={(name) => handleCreate(name, 'human')}
+        secondary={{
+          label: 'Играть с ботом',
+          testId: 'bot-button',
+          onSubmit: (name) => handleCreate(name, 'bot'),
+        }}
       />
     </section>
   );

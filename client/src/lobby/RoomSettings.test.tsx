@@ -10,8 +10,8 @@ const byId = (id: string) => screen.getByTestId(id);
 const queryById = (id: string) => screen.queryByTestId(id);
 
 const players: RoomStatePayload['players'] = [
-  { seat: 0, name: 'Аня', connected: true, reconnectRemainingMs: null },
-  { seat: 1, name: 'Боб', connected: true, reconnectRemainingMs: null },
+  { seat: 0, name: 'Аня', connected: true, reconnectRemainingMs: null, bot: false },
+  { seat: 1, name: 'Боб', connected: true, reconnectRemainingMs: null, bot: false },
 ];
 
 function setup(helloPatch: object = {}) {

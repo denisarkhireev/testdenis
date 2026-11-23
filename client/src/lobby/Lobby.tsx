@@ -72,7 +72,7 @@ export function Lobby({
           matchTargetOptions={matchTargetOptions}
           defaultMatchTarget={defaultMatchTarget}
           handSizeOptions={handSizeOptions}
-          onCreate={(name, settings) => void create(name, settings)}
+          onCreate={(name, settings, opponent) => void create(name, settings, opponent)}
         />
       );
   }

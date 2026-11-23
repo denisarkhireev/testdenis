@@ -16,7 +16,21 @@ export function MatchScore({
   turnSeconds = 0,
   handSize = DEFAULT_HAND_SIZE,
 }: MatchScoreProps) {
-  const name = (seat: 0 | 1) => players.find((player) => player.seat === seat)?.name ?? '';
+  const name = (seat: 0 | 1) => {
+    const player = players.find((p) => p.seat === seat);
+    if (!player) return '';
+    // spec-15 §4.3: значок перед именем бота.
+    return player.bot ? (
+      <>
+        <span data-testid="opponent-bot" aria-label="бот" role="img">
+          🤖
+        </span>{' '}
+        {player.name}
+      </>
+    ) : (
+      player.name
+    );
+  };
   return (
     <p className="match-score" data-testid="match-score">
       <span className="match-score-names">

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   PROTOCOL_VERSION,
+  type Opponent,
   type RoomClosedPayload,
   type RoomClosedReason,
   type RoomSettings,
@@ -82,7 +83,8 @@ function initLobbyState(): LobbyState {
 export interface Lobby {
   state: LobbyState;
   /** spec-11, spec-14: настройки комнаты — цель матча, костей в руке, время на ход. */
-  create(name: string, settings: RoomSettings): Promise<void>;
+  /** spec-15: `opponent = 'bot'` — второе место сразу занимает бот, экран ожидания не нужен. */
+  create(name: string, settings: RoomSettings, opponent?: Opponent): Promise<void>;
   join(name: string): Promise<void>;
   goHome(): void;
 }
@@ -208,8 +210,11 @@ export function useLobby(socket: ClientSocket, status: ConnectionStatus): Lobby 
   );
 
   const create = useCallback(
-    (name: string, settings: RoomSettings) =>
-      submit('create', name, (n) => createRoom(socket, { name: n, ...settings })),
+    (name: string, settings: RoomSettings, opponent: Opponent = 'human') =>
+      submit('create', name, (n) =>
+        // spec-15 §4.3: поле opponent — только для бота (запрос «с человеком» не меняется).
+        createRoom(socket, { name: n, ...settings, ...(opponent === 'bot' ? { opponent } : {}) }),
+      ),
     [submit, socket],
   );
 

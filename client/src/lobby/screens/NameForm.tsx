@@ -9,10 +9,19 @@ export interface NameFormProps {
   canSubmit: boolean;
   error: string | null;
   onSubmit(name: string): void;
+  /** spec-15: вторая кнопка под основной (та же активность); Enter в поле — по-прежнему основная. */
+  secondary?: { label: string; testId: string; onSubmit(name: string): void } | undefined;
 }
 
 /** Общая форма home/join: Enter в поле = клик по кнопке. */
-export function NameForm({ submitLabel, submitTestId, canSubmit, error, onSubmit }: NameFormProps) {
+export function NameForm({
+  submitLabel,
+  submitTestId,
+  canSubmit,
+  error,
+  onSubmit,
+  secondary,
+}: NameFormProps) {
   const [name, setName] = useState(loadName);
   const enabled = canSubmit && isValidName(name);
 
@@ -37,6 +46,18 @@ export function NameForm({ submitLabel, submitTestId, canSubmit, error, onSubmit
       <button type="submit" data-testid={submitTestId} disabled={!enabled}>
         {submitLabel}
       </button>
+      {secondary && (
+        <button
+          type="button"
+          data-testid={secondary.testId}
+          disabled={!enabled}
+          onClick={() => {
+            if (enabled) secondary.onSubmit(name);
+          }}
+        >
+          {secondary.label}
+        </button>
+      )}
       {error && (
         <p className="lobby-error" role="alert" data-testid="form-error">
           {error}
