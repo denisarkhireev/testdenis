@@ -58,6 +58,12 @@ export interface TurnTimerView {
   paused: boolean;
 }
 
+/** spec-15: соперник при создании комнаты. */
+export type Opponent = 'human' | 'bot';
+export const OPPONENTS: readonly Opponent[] = ['human', 'bot'];
+/** spec-15 B2: имя бота в комнате. */
+export const BOT_NAME = 'Бот';
+
 export type RoomPhase = 'waiting' | 'playing' | 'finished';
 
 export interface RoomPlayer {
@@ -66,6 +72,8 @@ export interface RoomPlayer {
   connected: boolean;
   /** spec-9 RC8: сколько мс ещё ждём возвращения; null — игрок подключён. */
   reconnectRemainingMs: number | null;
+  /** spec-15 B8: место занимает бот. */
+  bot: boolean;
 }
 
 /** Состояние комнаты глазами одного игрока. Единственное событие с состоянием. */
@@ -134,6 +142,8 @@ export interface RoomCreatePayload {
   matchTarget?: number;
   /** spec-14 S3: нет — 7; не из HAND_SIZE_OPTIONS — INVALID_PAYLOAD. */
   handSize?: number;
+  /** spec-15 B2: нет — 'human'; не из Opponent — INVALID_PAYLOAD. */
+  opponent?: Opponent;
 }
 
 /** spec-14 S7: C→S, предпросмотр настроек комнаты до входа. */
