@@ -37,6 +37,7 @@ export const KEY_IDS = {
     'match-target-choice',
     'hand-size-choice',
     'turn-seconds',
+    'bot-button',
     'sound-toggle',
   ],
   badLink: ['home-button', 'sound-toggle'],
@@ -153,6 +154,25 @@ export async function createGame(
   const link = await page.getByTestId('invite-link').inputValue();
   expect(link).toMatch(INVITE_RE);
   return link;
+}
+
+/** spec-15: «Играть с ботом» → сразу игровой стол (без экрана ожидания). */
+export async function createBotGame(
+  page: Page,
+  name: string,
+  { turnSeconds, matchTarget, handSize }: CreateGameOptions = {},
+): Promise<void> {
+  await page.goto('/');
+  await expect(page.getByTestId('connection-status')).toHaveText('connected', TIMEOUT);
+  if (matchTarget !== undefined) {
+    await page.getByTestId(`match-target-choice-${matchTarget}`).check();
+  }
+  if (handSize !== undefined) await page.getByTestId(`hand-size-choice-${handSize}`).check();
+  if (turnSeconds !== undefined) await page.getByTestId(`turn-seconds-${turnSeconds}`).check();
+  await page.getByTestId('name-input').fill(name);
+  await page.getByTestId('bot-button').click();
+  await expect(page.getByTestId('game-screen')).toBeVisible(TIMEOUT);
+  await expect(page.getByTestId('opponent-bot')).toBeVisible(TIMEOUT);
 }
 
 /** Вкладка по ссылке: имя → «Войти». */
@@ -335,7 +355,7 @@ export async function currentMover(a: Page, b: Page): Promise<{ mover: Page; oth
   return (await readTable(a)).myTurn ? { mover: a, other: b } : { mover: b, other: a };
 }
 
-function expectTotal(table: Table) {
+export function expectTotal(table: Table) {
   expect(table.hand + table.opp + table.boneyard + table.board).toBe(28);
 }
 
@@ -419,4 +439,41 @@ export async function sendReaction(page: Page, id: string): Promise<void> {
     await page.getByTestId('reaction-toggle').click();
   }
   await page.getByTestId(`reaction-${id}`).click();
+}
+
+export interface BotRoundResult {
+  /** Сколько действий сделал игрок. */
+  steps: number;
+  /** Сколько костей выложил бот (= костей на столе − выложенных игроком). */
+  botPlays: number;
+}
+
+/**
+ * spec-15: игрок доигрывает раунд против бота до `round-summary`. На своём ходу — `makeMove`
+ * и ожидание перерисовки; на ходу бота — ожидание своего хода или итогов. На каждом шаге,
+ * пока раунд идёт, — сумма костей 28.
+ */
+export async function playRoundVsBot(page: Page, maxSteps = 200): Promise<BotRoundResult> {
+  let myPlays = 0;
+  for (let steps = 0; steps < maxSteps; steps++) {
+    await expect
+      .poll(async () => {
+        const table = await readTable(page);
+        return table.summary || table.myTurn;
+      }, TIMEOUT)
+      .toBe(true);
+    const before = await readTable(page);
+    if (before.summary) return { steps, botPlays: before.board - myPlays };
+    expectTotal(before);
+
+    const kind = await makeMove(page);
+    if (kind === 'play') myPlays++;
+    const snapshot = JSON.stringify(before);
+    await expect
+      .poll(async () => JSON.stringify(await readTable(page)) !== snapshot, TIMEOUT)
+      .toBe(true);
+    const after = await readTable(page);
+    if (!after.summary) expectTotal(after);
+  }
+  throw new Error(`round did not finish in ${maxSteps} steps`);
 }
