@@ -2,15 +2,18 @@ import { canPlace, boardEnds, placeTile } from './board';
 import { deal, HAND_SIZE, shuffle } from './deck';
 import { compareOpening, createDoubleSix, MAX_PIP, sameTile, tileKey, TILE_COUNT } from './tiles';
 import { createRng } from './rng';
+import { handOf, nextSeat, playerCountOf } from './seats';
 import { classicVariant } from './variants/classic';
 import type { RulesVariant } from './variants/types';
 import type {
   ApplyResult,
   End,
+  Hands,
   Move,
   MoveError,
   Pip,
   PlacedTile,
+  PlayerCount,
   PlayerIndex,
   RoundState,
   Tile,
@@ -23,13 +26,11 @@ export interface StartRoundOptions {
   deck?: readonly Tile[];
   /** spec-14 S4: размер руки из HAND_SIZES, по умолчанию HAND_SIZE (7); иначе throw. */
   handSize?: number;
+  /** spec-17 Q2: число мест, по умолчанию 2; при 4 — handSize только 7. */
+  playerCount?: PlayerCount;
 }
 
 const ENDS: readonly End[] = ['left', 'right'];
-
-function opponent(player: PlayerIndex): PlayerIndex {
-  return player === 0 ? 1 : 0;
-}
 
 function assertValidDeck(deck: readonly Tile[]): void {
   if (!Array.isArray(deck) || deck.length !== TILE_COUNT) {
@@ -63,15 +64,15 @@ function isCanonicalTile(value: unknown): value is Tile {
 }
 
 /** Старшая кость для первого хода и её владелец (R4). */
-function findOpening(hands: readonly [readonly Tile[], readonly Tile[]]): {
+function findOpening(hands: readonly (readonly Tile[])[]): {
   tile: Tile;
   player: PlayerIndex;
 } {
   let best: { tile: Tile; player: PlayerIndex } | null = null;
-  for (const player of [0, 1] as const) {
-    for (const tile of hands[player]) {
+  for (let seat = 0; seat < hands.length; seat++) {
+    for (const tile of hands[seat] ?? []) {
       if (!best || compareOpening(tile, best.tile) > 0) {
-        best = { tile, player };
+        best = { tile, player: seat as PlayerIndex };
       }
     }
   }
@@ -86,6 +87,7 @@ export function startRound(opts: StartRoundOptions = {}): RoundState {
   const { hands, boneyard } = deal(
     deck.map((t): Tile => [t[0], t[1]]),
     opts.handSize ?? HAND_SIZE,
+    opts.playerCount ?? 2,
   );
   const opening = findOpening(hands);
   return {
@@ -121,13 +123,9 @@ function hasPlay(board: readonly PlacedTile[], hand: readonly Tile[]): boolean {
   return hand.some((t) => ENDS.some((end) => canPlace(board, t, end)));
 }
 
-/** «Рыба» (R12): базар пуст и ни у одного игрока нет допустимого play. */
+/** «Рыба» (R12, spec-17 Q7): базар пуст и ни у одного игрока нет допустимого play. */
 function isFish(state: RoundState): boolean {
-  return (
-    state.boneyard.length === 0 &&
-    !hasPlay(state.board, state.hands[0]) &&
-    !hasPlay(state.board, state.hands[1])
-  );
+  return state.boneyard.length === 0 && state.hands.every((h) => !hasPlay(state.board, h));
 }
 
 function finishIfFish(state: RoundState, variant: RulesVariant): RoundState {
@@ -141,9 +139,14 @@ export function getLegalMoves(state: RoundState): Move[] {
   if (state.board.length === 0) {
     return [{ type: 'play', tile: state.openingTile, end: 'right' }];
   }
-  const plays = playMovesFor(state.board, state.hands[state.currentPlayer]);
+  const plays = playMovesFor(state.board, handOf(state, state.currentPlayer));
   if (plays.length > 0) return plays;
   return state.boneyard.length > 0 ? [{ type: 'draw' }] : [{ type: 'pass' }];
+}
+
+/** Новый массив рук, где рука места `player` заменена. */
+function replaceHand(hands: Hands, player: PlayerIndex, hand: Tile[]): Hands {
+  return hands.map((h, i) => (i === player ? hand : h)) as Hands;
 }
 
 function fail(error: MoveError): ApplyResult {
@@ -157,7 +160,7 @@ function applyPlay(
   end: End,
   variant: RulesVariant,
 ): ApplyResult {
-  const hand = state.hands[player];
+  const hand = handOf(state, player);
   const index = hand.findIndex((t) => sameTile(t, tile));
   if (index === -1) return fail('TILE_NOT_IN_HAND');
   if (state.board.length === 0 && !sameTile(tile, state.openingTile)) {
@@ -166,8 +169,7 @@ function applyPlay(
   if (!canPlace(state.board, tile, end)) return fail('TILE_DOES_NOT_FIT');
 
   const newHand = hand.filter((_, i) => i !== index);
-  const hands: [Tile[], Tile[]] =
-    player === 0 ? [newHand, state.hands[1]] : [state.hands[0], newHand];
+  const hands = replaceHand(state.hands, player, newHand);
   const next: RoundState = { ...state, hands, board: placeTile(state.board, tile, end) };
 
   if (newHand.length === 0) {
@@ -178,23 +180,22 @@ function applyPlay(
   }
   const afterFish = finishIfFish(next, variant);
   if (afterFish.status === 'finished') return { ok: true, state: afterFish };
-  return { ok: true, state: { ...next, currentPlayer: opponent(player) } };
+  return { ok: true, state: { ...next, currentPlayer: nextSeat(player, playerCountOf(state)) } };
 }
 
 function applyDraw(state: RoundState, player: PlayerIndex, variant: RulesVariant): ApplyResult {
-  if (hasPlay(state.board, state.hands[player])) return fail('MUST_PLAY');
+  if (hasPlay(state.board, handOf(state, player))) return fail('MUST_PLAY');
   const [drawn, ...boneyard] = state.boneyard;
   if (!drawn) return fail('BONEYARD_EMPTY');
-  const newHand = [...state.hands[player], drawn];
-  const hands: [Tile[], Tile[]] =
-    player === 0 ? [newHand, state.hands[1]] : [state.hands[0], newHand];
+  const hands = replaceHand(state.hands, player, [...handOf(state, player), drawn]);
   return { ok: true, state: finishIfFish({ ...state, hands, boneyard }, variant) };
 }
 
 function applyPass(state: RoundState, player: PlayerIndex, variant: RulesVariant): ApplyResult {
-  if (hasPlay(state.board, state.hands[player])) return fail('MUST_PLAY');
+  if (hasPlay(state.board, handOf(state, player))) return fail('MUST_PLAY');
   if (state.boneyard.length > 0) return fail('BONEYARD_NOT_EMPTY');
-  return { ok: true, state: finishIfFish({ ...state, currentPlayer: opponent(player) }, variant) };
+  const currentPlayer = nextSeat(player, playerCountOf(state));
+  return { ok: true, state: finishIfFish({ ...state, currentPlayer }, variant) };
 }
 
 /**

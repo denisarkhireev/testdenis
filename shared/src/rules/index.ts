@@ -1,16 +1,20 @@
 export type {
   ApplyResult,
   End,
+  Hands,
   Move,
   MoveError,
   Pip,
   PlacedTile,
+  PlayerCount,
   PlayerIndex,
   RoundEndReason,
   RoundResult,
   RoundState,
+  TeamIndex,
   Tile,
 } from './types';
+export { handOf, nextSeat, otherTeam, partnerOf, playerCountOf, teamOf, teamSeats } from './seats';
 export { createRng } from './rng';
 export { compareOpening, createDoubleSix, isDouble, sameTile, tileKey, tilePips } from './tiles';
 export { deal, HAND_SIZE, HAND_SIZES, shuffle } from './deck';

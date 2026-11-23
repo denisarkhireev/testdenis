@@ -10,7 +10,7 @@ export interface RulesVariant {
   /** Итог раунда по причине конца и рукам. dominoWinner — сыгравший последнюю кость. */
   resolveRound(
     reason: RoundEndReason,
-    hands: readonly [readonly Tile[], readonly Tile[]],
+    hands: readonly (readonly Tile[])[],
     dominoWinner?: PlayerIndex,
   ): RoundResult;
   /** Записать итог раунда в матч, определить конец матча. Вход не мутируется; оконченный матч — throw. */

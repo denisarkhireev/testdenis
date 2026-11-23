@@ -8,7 +8,15 @@
  */
 import type { ReactionId } from './reactions';
 import { VARIANT_IDS } from './rules';
-import type { MatchState, Move, MoveError, PlayerIndex, PlayerView, VariantId } from './rules';
+import type {
+  MatchState,
+  Move,
+  MoveError,
+  PlayerCount,
+  PlayerIndex,
+  PlayerView,
+  VariantId,
+} from './rules';
 
 export const PROTOCOL_VERSION = 1;
 
@@ -44,6 +52,16 @@ export const DEFAULT_HAND_SIZE = 7;
 /** spec-16 K8: варианты правил для экрана создания. */
 export const VARIANT_OPTIONS: readonly VariantId[] = VARIANT_IDS;
 
+/** spec-17 Q11: режим комнаты — 1 на 1 или 2 на 2 (команды — места 0+2 и 1+3). */
+export type RoomMode = '1x1' | '2x2';
+export const ROOM_MODES: readonly RoomMode[] = ['1x1', '2x2'];
+export const DEFAULT_ROOM_MODE: RoomMode = '1x1';
+
+/** spec-17: число мест комнаты режима. */
+export function seatCountOf(mode: RoomMode): PlayerCount {
+  return mode === '2x2' ? 4 : 2;
+}
+
 /** spec-14 S1: настройки комнаты; задаются в room:create и не меняются до закрытия комнаты. */
 export interface RoomSettings {
   matchTarget: number;
@@ -52,6 +70,8 @@ export interface RoomSettings {
   turnSeconds: number;
   /** spec-16 K7: вариант правил. */
   variant: VariantId;
+  /** spec-17 Q11: режим комнаты. */
+  mode: RoomMode;
 }
 
 /** Таймер текущего хода глазами игрока (spec-11 T2–T10). */
@@ -87,7 +107,10 @@ export interface RoomStatePayload {
   roomId: string;
   you: PlayerIndex;
   phase: RoomPhase;
-  /** По месту: players[0] — создатель; длина 1 в waiting, 2 потом. */
+  /**
+   * Занятые места по возрастанию seat: players[0] — создатель; в 1×1 длина 1 в waiting, 2 потом.
+   * spec-17: в 2×2 — до 4, возможны пропуски (напр. места [0, 2]).
+   */
   players: RoomPlayer[];
   /** null в waiting; иначе toPlayerView(round, you). */
   game: PlayerView | null;
@@ -101,14 +124,16 @@ export interface RoomStatePayload {
   handSize: number;
   /** spec-16 K7: вариант правил комнаты, во всех фазах. */
   variant: VariantId;
+  /** spec-17: режим комнаты, во всех фазах. */
+  mode: RoomMode;
   /** spec-11: null — таймер не идёт (T3). */
   turnTimer: TurnTimerView | null;
 }
 
 /** Матч глазами игроков: счёт, история и готовность к следующему раунду/реваншу. */
 export interface MatchView extends MatchState {
-  /** Нажал ли игрок места i «Следующий раунд»/«Реванш» (M4–M6). Всегда [false,false] при playing. */
-  ready: [boolean, boolean];
+  /** Нажал ли игрок места i «Следующий раунд»/«Реванш» (M4–M6, spec-17 Q10). Длина = число мест; все false при playing. */
+  ready: boolean[];
 }
 
 export type RoomClosedReason = 'player_left' | 'replaced';
@@ -154,6 +179,8 @@ export interface RoomCreatePayload {
   opponent?: Opponent;
   /** spec-16 K8: нет — 'classic'; не из VARIANT_OPTIONS — INVALID_PAYLOAD. */
   variant?: VariantId;
+  /** spec-17 Q11: нет — '1x1'; не из ROOM_MODES — INVALID_PAYLOAD. */
+  mode?: RoomMode;
 }
 
 /** spec-14 S7: C→S, предпросмотр настроек комнаты до входа. */
@@ -164,6 +191,8 @@ export interface RoomInfoPayload {
 export interface RoomInfoAck {
   roomId: string;
   settings: RoomSettings;
+  /** spec-17: свободных мест сейчас. */
+  freeSeats: number;
 }
 
 export interface RoomJoinPayload {
@@ -189,7 +218,7 @@ export interface GameReactPayload {
   reactionId: ReactionId;
 }
 
-/** S→C: реакция игрока места `seat`; приходит обоим, включая отправителя (RX6). */
+/** S→C: реакция игрока места `seat`; приходит всем подключённым, включая отправителя (RX6, spec-17 Q16). */
 export interface RoomReactionPayload {
   seat: PlayerIndex;
   reactionId: ReactionId;
