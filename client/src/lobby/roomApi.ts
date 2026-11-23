@@ -2,6 +2,8 @@ import type {
   AckResult,
   RoomCreatePayload,
   RoomErrorCode,
+  RoomInfoAck,
+  RoomInfoPayload,
   RoomJoinedAck,
   RoomJoinPayload,
   RoomRejoinedAck,
@@ -13,6 +15,7 @@ import type { ClientSocket } from '../socket';
 export const ACK_TIMEOUT_MS = 5000;
 
 export type JoinResult = AckResult<RoomJoinedAck, RoomErrorCode> | 'timeout';
+export type InfoResult = AckResult<RoomInfoAck, RoomErrorCode> | 'timeout';
 export type RejoinResult = AckResult<RoomRejoinedAck, RoomErrorCode> | 'timeout';
 
 /** Ack приходит как есть; reject (таймаут/обрыв) превращается в `'timeout'`. */
@@ -37,4 +40,9 @@ export function rejoinRoom(
   payload: RoomRejoinPayload,
 ): Promise<RejoinResult> {
   return orTimeout(() => socket.timeout(ACK_TIMEOUT_MS).emitWithAck('room:rejoin', payload));
+}
+
+/** spec-14 S7: настройки комнаты до входа; без побочных эффектов на сервере. */
+export function roomInfo(socket: ClientSocket, payload: RoomInfoPayload): Promise<InfoResult> {
+  return orTimeout(() => socket.timeout(ACK_TIMEOUT_MS).emitWithAck('room:info', payload));
 }

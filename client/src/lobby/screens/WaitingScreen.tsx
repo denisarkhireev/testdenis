@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import type { RoomSettings } from '@domino/shared';
+import { RoomSettingsLine } from '../RoomSettingsLine';
 
 export const COPIED_TEXT = 'Ссылка скопирована';
 export const COPY_MANUALLY_TEXT = 'Скопируйте ссылку вручную (Ctrl+C)';
@@ -6,6 +8,8 @@ export const COPIED_VISIBLE_MS = 2000;
 
 export interface WaitingScreenProps {
   roomId: string;
+  /** spec-14 S8: настройки комнаты (из room:state) — создатель видит, что выбрал. */
+  settings: RoomSettings;
   inviteUrl: string;
 }
 
@@ -19,7 +23,7 @@ async function writeClipboard(text: string): Promise<boolean> {
   }
 }
 
-export function WaitingScreen({ roomId, inviteUrl }: WaitingScreenProps) {
+export function WaitingScreen({ roomId, settings, inviteUrl }: WaitingScreenProps) {
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -57,6 +61,7 @@ export function WaitingScreen({ roomId, inviteUrl }: WaitingScreenProps) {
       <p>
         Код комнаты: <code>{roomId}</code>
       </p>
+      <RoomSettingsLine settings={settings} testId="waiting-settings" />
       <p>Отправьте другу ссылку — игра начнётся, как только он войдёт.</p>
       <div className="lobby-invite">
         <input

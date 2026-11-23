@@ -33,6 +33,7 @@ export function makeMatch(partial: Partial<MatchView> = {}): MatchView {
     roundNumber: 1,
     rounds: [],
     winner: null,
+    forfeit: null,
     ready: [false, false],
     ...partial,
   };
@@ -48,11 +49,15 @@ export function makeRoom(
     you: view?.you ?? 0,
     phase: view?.status === 'finished' ? 'finished' : 'playing',
     players: [
-      { seat: 0, name: 'Аня', connected: true },
-      { seat: 1, name: 'Боб', connected: true },
+      { seat: 0, name: 'Аня', connected: true, reconnectRemainingMs: null },
+      { seat: 1, name: 'Боб', connected: true, reconnectRemainingMs: null },
     ],
     game: view,
     match: makeMatch(),
+    turnSeconds: 0,
+    matchTarget: 101,
+    handSize: 7,
+    turnTimer: null,
     ...overrides,
   };
 }

@@ -1,0 +1,38 @@
+# Fly.io (spec-8): одна машина — состояние комнат в памяти процесса.
+# Деплой: `fly deploy --ha=false`. Не масштабировать (`fly scale count` > 1 ломает комнаты).
+app = "domino-testdenis"          # уникальное имя; если занято — поменять здесь и в PUBLIC_URL
+primary_region = "fra"
+kill_signal = "SIGTERM"
+kill_timeout = 10
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  MATCH_TARGET = "101"
+  RECONNECT_TIMEOUT = "120000"   # spec-9: мс ожидания отключившегося игрока до техпоражения
+  PUBLIC_URL = "https://domino-testdenis.fly.dev"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 200
+    hard_limit = 250
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/healthz"
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

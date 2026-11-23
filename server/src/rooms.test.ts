@@ -16,7 +16,7 @@ const SEED = 42;
 const ROOM_ID = /^[A-HJ-NP-Z2-9]{6}$/;
 
 describe('rooms', () => {
-  const ctx = useTestServer({ roundSeed: () => SEED, reconnectGraceMs: 300 });
+  const ctx = useTestServer({ roundSeed: () => SEED, reconnectTimeoutMs: 300 });
 
   it('R1: room:create → ack with seat 0 and token, then waiting room:state', async () => {
     const a = await ctx.connectClient();
@@ -30,9 +30,13 @@ describe('rooms', () => {
       roomId: ack.roomId,
       you: 0,
       phase: 'waiting',
-      players: [{ seat: 0, name: 'A', connected: true }],
+      players: [{ seat: 0, name: 'A', connected: true, reconnectRemainingMs: null }],
       game: null,
       match: null,
+      turnSeconds: 60,
+      matchTarget: 101,
+      handSize: 7,
+      turnTimer: null,
     });
   });
 
@@ -52,8 +56,8 @@ describe('rooms', () => {
     expect(joined.playerToken).not.toBe(created.playerToken);
 
     const players = [
-      { seat: 0, name: 'A', connected: true },
-      { seat: 1, name: 'B', connected: true },
+      { seat: 0, name: 'A', connected: true, reconnectRemainingMs: null },
+      { seat: 1, name: 'B', connected: true, reconnectRemainingMs: null },
     ];
     const [sa, sb] = await Promise.all([stateA, stateB]);
     expect(sa).toMatchObject({ roomId: created.roomId, you: 0, phase: 'playing', players });
@@ -150,14 +154,15 @@ describe('rooms', () => {
 
 describe('disconnect and rejoin', () => {
   const GRACE = 300;
-  const ctx = useTestServer({ roundSeed: () => SEED, reconnectGraceMs: GRACE });
+  const ctx = useTestServer({ roundSeed: () => SEED, reconnectTimeoutMs: GRACE });
 
   it('D1: opponent sees connected:false after disconnect', async () => {
     const { a, b } = await createPlayingRoom(ctx);
     const state = nextState(a);
     b.disconnect();
     const s = await state;
-    expect(s.players[1]).toEqual({ seat: 1, name: 'B', connected: false });
+    expect(s.players[1]).toMatchObject({ seat: 1, name: 'B', connected: false });
+    expect(s.players[1]!.reconnectRemainingMs).toBeGreaterThan(0);
     expect(s.phase).toBe('playing');
   });
 
@@ -225,20 +230,7 @@ describe('disconnect and rejoin', () => {
     });
   });
 
-  it('D5: grace expiry closes the room for the remaining player', async () => {
-    const { a, b, roomId, start } = await createPlayingRoom(ctx);
-    const closed = nextClosed(a);
-    b.disconnect();
-    expect(await closed).toEqual({ roomId, reason: 'player_left' });
-
-    const move = start[0].game!.legalMoves[0] ?? { type: 'pass' as const };
-    expect(await emitAck(a, 'game:move', { move })).toEqual({ ok: false, error: 'NOT_IN_ROOM' });
-    const c = await ctx.connectClient();
-    expect(await emitAck(c, 'room:join', { roomId, name: 'C' })).toEqual({
-      ok: false,
-      error: 'ROOM_NOT_FOUND',
-    });
-  });
+  // D5 (grace → room:closed) заменён техпоражением X5 в reconnect.test.ts (spec-9 RC5).
 
   it('D6: rejoin from a second tab replaces the first socket', async () => {
     const { a, b, roomId, tokens, start } = await createPlayingRoom(ctx);
@@ -284,7 +276,7 @@ describe('disconnect and rejoin', () => {
 });
 
 describe('server close', () => {
-  const ctx = useTestServer({ roundSeed: () => SEED, reconnectGraceMs: 60_000 });
+  const ctx = useTestServer({ roundSeed: () => SEED, reconnectTimeoutMs: 60_000 });
 
   it('D8: close() resolves at once with a disconnected player (grace 60 s)', async () => {
     const { a, b } = await createPlayingRoom(ctx);

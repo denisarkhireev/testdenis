@@ -1,11 +1,7 @@
-import { expect, test, type Page } from '@playwright/test';
-import { playRoundToEnd, readTable, startGame, TIMEOUT } from './helpers';
+import { expect, type Page } from '@playwright/test';
+import { noHorizontalScroll, playRoundToEnd, readTable, startGame, test, TIMEOUT } from './helpers';
 
 test.describe.configure({ timeout: 120_000 });
-
-async function noHorizontalScroll(page: Page): Promise<boolean> {
-  return page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
-}
 
 async function roundPoints(page: Page): Promise<number> {
   return Number(await page.getByTestId('round-points').textContent());
@@ -35,9 +31,9 @@ async function finishRound(a: Page, b: Page) {
 }
 
 test('E12/E13: play a round to the end, see the summary, start the next round', async ({
-  context,
+  browser,
 }) => {
-  const { a, b } = await startGame(context);
+  const { a, b } = await startGame(browser);
   for (const page of [a, b]) {
     await expect(page.getByTestId('match-score')).toContainText('Аня 0 : 0 Боб');
     await expect(page.getByTestId('match-round')).toHaveText('1');
@@ -69,8 +65,8 @@ test('E12/E13: play a round to the end, see the summary, start the next round', 
   }
 });
 
-test('E14: round summary fits 360×640 without horizontal scroll', async ({ context }) => {
-  const { a, b } = await startGame(context, { viewport: { width: 360, height: 640 } });
+test('E14: round summary fits 360×640 without horizontal scroll', async ({ browser }) => {
+  const { a, b } = await startGame(browser, { viewport: { width: 360, height: 640 } });
   await finishRound(a, b);
   for (const page of [a, b]) {
     expect(await noHorizontalScroll(page)).toBe(true);
@@ -81,8 +77,8 @@ test('E14: round summary fits 360×640 without horizontal scroll', async ({ cont
   }
 });
 
-test('E15: reload on the summary restores the same summary and readiness', async ({ context }) => {
-  const { a, b } = await startGame(context);
+test('E15: reload on the summary restores the same summary and readiness', async ({ browser }) => {
+  const { a, b } = await startGame(browser);
   const { points, scores } = await finishRound(a, b);
   await a.getByTestId('continue-button').click();
   await expect(b.getByTestId('ready-status')).toHaveText('Соперник готов', TIMEOUT);
